@@ -46,6 +46,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BS (unsafePackLenBytes)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Builder.Extra as Builder
 import GHC.Base hiding (empty, foldr)
 import GHC.Num (Num (..))
 import qualified Data.List as List
@@ -172,11 +173,11 @@ dropWhileEnd p = dropWhileEnd_loop
 
 take :: Int -> Text -> Text
 {-^ O(n) @take n txt@ is the first @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is @txt@. -}
-take !n !cs = case splitAt n cs of (cs', _) -> cs'
+take !n !cs = case splitAt# n cs of (# cs', _ #) -> cs'
 {-# NOTINLINE take #-}
 
 takeWhile :: (Char -> Bool) -> Text -> Text
-takeWhile p !cs = case span p cs of (cs', _) -> cs'
+takeWhile p !cs = case span# p cs of (# cs', _ #) -> cs'
 {-# INLINE [~0] takeWhile #-}
 
 takeEnd :: Int -> Text -> Text
@@ -222,7 +223,7 @@ foldr' f = loop
 {-# INLINABLE foldr' #-}
 
 reverse :: Text -> Text
-reverse cs =
+reverse cs = -- Could first test whether cs is shorter than 2 Chars.
     UnsafeFromByteString
         (BS.unsafePackLenBytes
             (lengthWord8 cs)
@@ -232,20 +233,9 @@ reverse cs =
                         foldrCharBytes
                             (\ w8 w8s' -> w8 `cons` w8s')
                             cs'
-                            (charBytes c))
+                            c)
                      nil
                      cs)))
--- reverse cs
---     | compareLength cs 1 /= GT
---     = cs
---     | otherwise
---     = UnsafeFromByteString
---           (BS.unsafePackLenBytes
---               (lengthWord8 cs)
---               (List.concatMap
---                   (snd . unpackLenChar)
---                   (List.reverse (unpack cs))))
--- {-# INLINE [~0] reverse #-}
 
 isPrefixOf, isSuffixOf, isInfixOf :: Text -> Text -> Bool
 isPrefixOf = coerce BS.isPrefixOf
@@ -262,15 +252,12 @@ stripSuffix = coerce BS.stripSuffix
 {-# INLINE stripSuffix #-}
 
 singleton :: Char -> Text
-singleton !c
-    -- | isAscii c -- Use ByteString's preallocated singleton:
-    -- = UnsafeFromByteString (BS.singleton (fromIntegral (ord c)))
-    -- | otherwise
-    = fromBuilder (Builder.charUtf8 c)
--- singleton =
-    -- case unpackLenChar c of
-    --     (l, w8s) -> UnsafeFromByteString (BS.unsafePackLenBytes l w8s)
-{-# INLINE singleton #-}
+-- singleton = toTextWith 4 . charUtf8  -- Using the Builder-based definition leads to massive code size blowup.
+singleton !c = UnsafeFromByteString $ case charBytes c of
+    CharBytes1 w0 -> BS.singleton w0
+    CharBytes2 w0 w1 -> BS.unsafePackLenBytes 2 (w0 : w1 : [])
+    CharBytes3 w0 w1 w2 -> BS.unsafePackLenBytes 3 (w0 : w1 : w2 : [])
+    CharBytes4 w0 w1 w2 w3 -> BS.unsafePackLenBytes 4 (w0 : w1 : w2 : w3 : [])
 
 concatMap :: (Char -> Text) -> Text -> Text
 concatMap f = concat . List.map f . unpack
@@ -289,11 +276,4 @@ emptyError :: [Char] -> a
 emptyError op_name =
     error ("Data.ByteString.Text." <> (op_name <> ": empty input"))
 {-# NOINLINE emptyError #-}
-
------- Helpers
-
-fromBuilder :: Builder.Builder -> Text
-fromBuilder =
-    UnsafeFromByteString . LBS.toStrict . Builder.toLazyByteString
-{-# INLINE fromBuilder #-}
 

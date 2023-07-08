@@ -29,14 +29,20 @@ unsafeHead, unsafeTail,
 -- * Unsafe Byte-based Operations:
 takeWord8,
 dropWord8,
+-- * Builder:
+Builder (..),
+toText, toTextWith,
+charUtf8, stringUtf8, fromText,
 -- * Helpers:
-CharBytes(..), charBytes, foldrCharBytes,
+CharBytes(..), charBytes,
+foldrCharBytes,
 ) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Builder.Extra as Builder
 import Control.DeepSeq (NFData)
 import GHC.Base hiding (empty, foldr)
 import qualified GHC.Exts as GHC
@@ -52,6 +58,7 @@ import Data.Bits
     ((.&.), (.|.), complement, countLeadingZeros, shift)
 import Data.Char
 -- import Data.Coerce (coerce) -- provided by GHC.Base
+import Foreign.Storable (sizeOf)
 import Text.Read
     ( Read (readPrec, readList, readListPrec)
     , readListDefault, readListPrecDefault
@@ -69,6 +76,7 @@ newtype Text = UnsafeFromByteString BS.ByteString
 -- Concrete versions of Monoid methods:
 
 empty :: Text
+{-^ "" -}
 empty = mempty
 {-# INLINE empty #-}
 
@@ -101,18 +109,25 @@ instance IsList Text where
     {-# INLINE toList #-}
     fromList = pack
     {-# INLINE fromList #-}
+    fromListN = packN
+    {-# INLINE fromListN #-}
 
 pack :: [Char] -> Text
-pack =
-    UnsafeFromByteString
-  . LBS.toStrict
-  . Builder.toLazyByteString
-  . Builder.stringUtf8
-{-# INLINE [~0] pack #-}
+pack = toText . stringUtf8
+{-# INLINE pack #-}
+
+packN :: Int -> [Char] -> Text
+packN n cs = toTextWith n' (stringUtf8 cs)
+  where
+    n4 = n * 4 -- maximum number of bytes in a packed string of n Char. Should this instead optimistically try n * 3?
+    !n'
+      | Builder.defaultChunkSize <= n4 = defaultChunkSize
+      | otherwise = n4
+{-# INLINE packN #-}
 
 unpack :: Text -> [Char]
 unpack cs = GHC.build (\ c n -> foldr c n cs)
-{-# INLINE [~0] unpack #-}
+{-# INLINE unpack #-}
 
 -- foldr is needed for unpack.
 foldr :: (Char -> b -> b) -> b -> Text -> b
@@ -144,29 +159,32 @@ unsafeHead :: Text -> Char
 
 WARNING: The behavior of @unsafeHead txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
 -}
-unsafeHead cs = case uncons# cs of (# c, _ #) -> c
-{-# INLINE unsafeHead #-}
+unsafeHead cs = case unsafeHeadLen# cs of (# c, _ #) -> c
+{-# INLINABLE unsafeHead #-}
 
--- uncons# is needed for uncons.
 uncons# :: Text -> (# Char, Text #)
 {-^ O(1) The first 'Char' and the rest of the 'Text'. See also: 'uncons'.
 
 WARNING: The behavior of @uncons# txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
 -}
-uncons# (UnsafeFromByteString bs) =
-    (# c, UnsafeFromByteString (BS.unsafeDrop l bs) #)
+uncons# cs = case unsafeHeadLen# cs of
+    (# c, l #) -> let !cs' = dropWord8 (I# l) cs in (# c, cs' #)
+{-# INLINABLE uncons# #-}
+
+unsafeHeadLen# :: Text -> (# Char, Int# #)
+unsafeHeadLen# (UnsafeFromByteString bs) = (# c, l #)
   where
     c = case l of
-        1 -> char1 b0
-        2 -> char2 b0 b1
-        3 -> char3 b0 b1 b2
+        1# -> char1 b0
+        2# -> char2 b0 b1
+        3# -> char3 b0 b1 b2
         _ -> char4 b0 b1 b2 b3
-    !l = utf8LengthByLeader b0
+    !(I# l) = utf8LengthByLeader b0
     !b0 = BS.unsafeHead bs
     b1 = BS.unsafeIndex bs 1
     b2 = BS.unsafeIndex bs 2
     b3 = BS.unsafeIndex bs 3
-{-# INLINABLE uncons# #-}
+{-# INLINE unsafeHeadLen# #-}
 
 unsnoc :: Text -> Maybe (Text, Char)
 unsnoc cs
@@ -180,9 +198,10 @@ unsnoc# :: Text -> (# Text, Char #)
 WARNING: The behavior of @unsnoc# txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
 -}
 unsnoc# (UnsafeFromByteString bs) =
-    (# UnsafeFromByteString (BS.unsafeTake length' bs), c #)
+    (# bs', c #)
   where
-    !length' = end - diff  -- forced even though it may not be used.
+    !bs' = UnsafeFromByteString (BS.unsafeTake length' bs)  -- forced even though it may not be used.
+    !length' = end - diff
     !(diff, c)
         | w0 <= 0x7F = (0, char1 w0)
         | w1 >= 0xC0 = (1, char2 w1 w0)
@@ -289,6 +308,71 @@ You must ensure that @n <= 'lengthWord8' txt@ and that the last code unit droppe
 dropWord8 = coerce BS.unsafeDrop
 {-# INLINE dropWord8 #-}
 
+------ Builder ------
+
+newtype Builder = UnsafeFromBuilder Builder.Builder
+  deriving newtype
+    (Monoid, Semigroup)
+
+instance IsString Builder where
+    fromString = stringUtf8
+    {-# INLINE fromString #-}
+
+instance Show Builder where
+    showsPrec _ = showList . unpack . toText -- FIXME: be lazier!
+
+instance Eq Builder where
+    UnsafeFromBuilder k1 == UnsafeFromBuilder k2 =
+        Builder.toLazyByteString k1 == Builder.toLazyByteString k2
+
+instance Ord Builder where
+    UnsafeFromBuilder k1 `compare` UnsafeFromBuilder k2 =
+        Builder.toLazyByteString k1 `compare` Builder.toLazyByteString k2
+
+-- Can't name this 'singleton', so we'll keep ByteString's name and rename it when we export it.
+charUtf8 :: Char -> Builder
+charUtf8 = coerce Builder.charUtf8
+{-# INLINE charUtf8 #-}
+
+fromText :: Text -> Builder
+fromText = coerce Builder.byteString
+{-# INLINE fromText #-}
+
+-- Can't name this 'fromString', so we'll keep ByteString's name until we export it.
+stringUtf8 :: [Char] -> Builder
+stringUtf8 = coerce Builder.stringUtf8
+{-# INLINE stringUtf8 #-}
+
+-- We don't have lazy Text yet, so make do with these:
+toText :: Builder -> Text
+{-^ O(n) Convert 'Builder' to 'Text'. -}
+toText = toTextWith smallChunkSize
+{-# INLINE toText #-}
+
+toTextWith :: Int -> Builder -> Text
+{-^ O(n) Convert 'Builder' to 'Text'. The @Int@ is the first buffer size, and should be your best estimate of the size of the result 'Text'.
+-}
+toTextWith sizeHint (UnsafeFromBuilder k) =
+    UnsafeFromByteString (LBS.toStrict (Builder.toLazyByteStringWith
+        (Builder.safeStrategy sizeHint defaultChunkSize)
+        LBS.empty
+        k))
+{-# INLINE toTextWith #-}
+
+defaultChunkSize :: Int
+{-^ Default chunk size in bytes. Currently 16 kibibites minus 'chunkOverhead'. -}
+defaultChunkSize = 16 * 1024  -  chunkOverhead
+
+smallChunkSize :: Int
+{-^ Small chunk size in bytes. Currently 128 bytes minus GHC's memory 'chunkOverhead'. -}
+smallChunkSize = 128 - chunkOverhead
+
+chunkOverhead :: Int
+{-^ GHC's memory management overhead (as of writing); for a 64-bit system this is 16 bytes. -}
+chunkOverhead = 2 * sizeOf (undefined :: Int)
+
+------ Helpers ------
+
 utf8LengthByLeader :: GHC.Word8 -> Int
 utf8LengthByLeader w8 = GHC.I# (n `GHC.xorI#` (n <=# 0#))
   where
@@ -314,48 +398,60 @@ data CharBytes
     | CharBytes4 !Word8 !Word8 !Word8 !Word8
 
 charBytes :: Char -> CharBytes
-charBytes c = case utf8Length c of
-    1 -> CharBytes1 (unChar1 c)
-    2 -> case unChar2# c of (# w0, w1 #) -> CharBytes2 w0 w1
-    3 -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
+charBytes c@( C# c# ) = case utf8Length# c# of
+    1# -> CharBytes1 (unChar1 c)
+    2# -> case unChar2# c of (# w0, w1 #) -> CharBytes2 w0 w1
+    3# -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
     _ -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
 {-# INLINABLE charBytes #-}
 
-foldrCharBytes :: (Word8 -> b -> b) -> b -> CharBytes -> b
-foldrCharBytes f z = go
-  where
-    go (CharBytes1 w0) = f w0 z
-    go (CharBytes2 w0 w1) = f w0 (f w1 z)
-    go (CharBytes3 w0 w1 w2) = f w0 (f w1 (f w2 z))
-    go (CharBytes4 w0 w1 w2 w3) = f w0 (f w1 (f w2 (f w3 z)))
+-- foldrCharBytes :: (Word8 -> b -> b) -> b -> CharBytes -> b
+-- foldrCharBytes f z = go
+--   where
+--     go (CharBytes1 w0) = f w0 z
+--     go (CharBytes2 w0 w1) = f w0 (f w1 z)
+--     go (CharBytes3 w0 w1 w2) = f w0 (f w1 (f w2 z))
+--     go (CharBytes4 w0 w1 w2 w3) = f w0 (f w1 (f w2 (f w3 z)))
+-- {-# INLINE foldrCharBytes #-}
+
+foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b
+foldrCharBytes f z c@( C# c# ) = case utf8Length# c# of
+    1# -> case unChar1 c of
+        !w0 -> f w0 z
+    2# -> case unChar2# c of
+        (# w0, w1 #) -> f w0 (f w1 z)
+    3# -> case unChar3# c of
+        (# w0, w1, w2 #) -> f w0 (f w1 (f w2 z))
+    _ -> case unChar4# c of
+        (# w0, w1, w2, w3 #) -> f w0 (f w1 (f w2 (f w3 z)))
 {-# INLINE foldrCharBytes #-}
 
 unChar1 :: Char -> Word8
 unChar1 = fromIntegral . ord
 
 unChar2# :: Char -> (# Word8, Word8 #)
-unChar2# c =
-    (# 0xC0 .|. fromIntegral (shift i (-6))
-    , markTail $ fromIntegral i
-    #)
-  where i = ord c
+unChar2# c = (# w0, w1 #)
+  where
+    i = ord c
+    !w0 = 0xC0 .|. fromIntegral (shift i (-6))
+    !w1 = markTail $ fromIntegral i
 
 unChar3# :: Char -> (# Word8, Word8, Word8 #)
 unChar3# c = (# w0, w1, w2 #)
   where
     i = ord c
     !w0 = 0xE0 .|. fromIntegral (shift i (-12))
-    !w1 = markTail $ fromIntegral (shift i (-6))
+    !w1 = markTail $ fromIntegral $ shift i (-6)
     !w2 = markTail $ fromIntegral i
 
 unChar4# :: Char -> (# Word8, Word8, Word8, Word8 #)
-unChar4# c =
-    (# 0xF0 .|. fromIntegral (shift i (-18))
-    , markTail $ fromIntegral $ shift i (-12)
-    , markTail $ fromIntegral $ shift i (-6)
-    , markTail $ fromIntegral i
-    #)
-  where i = ord c
+unChar4# c = (# w0, w1, w2, w3 #)
+  where
+    i = ord c
+    !w0 = 0xF0 .|. fromIntegral (shift i (-18))
+    !w1 = markTail $ fromIntegral $ shift i (-12)
+    !w2 = markTail $ fromIntegral $ shift i (-6)
+    !w3 = markTail $ fromIntegral i
 
 markTail :: Word8 -> Word8
 markTail b = 0x80 .|. unmarkTail b
