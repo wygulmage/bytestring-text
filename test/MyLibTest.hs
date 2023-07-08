@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Prelude hiding
-    (drop, dropWhile, elem, length, map, maximum, minimum, null, reverse, span, splitAt, take, takeWhile)
+    (concatMap, drop, dropWhile, elem, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, take, takeWhile)
 import Data.ByteString.Text.Core
 import Test.Tasty
 import Test.Tasty.QuickCheck
@@ -17,18 +17,22 @@ main :: IO ()
 main = defaultMain props
 
 props = testGroup "All Properties" $
+    testProperty "pack . unpack = id" prop_pack_unpack :
+    testProperty "concatMap singleton = id" prop_concatMap_singleton :
     props_take_drop :
     props_takeWhile_dropWhile :
-    testProperty "reverse"
-        prop_reverse_reverse :
-    testProperty "copy"
-        prop_copy :
+    testProperty "reverse" prop_reverse_reverse :
+    testProperty "copy" prop_copy :
     testProperty "compareLength = compare . length"
         prop_compareLength :
     props_is_fixOf :
     -- testProperty "map id = id"
     --     prop_map_id :
     []
+
+prop_pack_unpack cs = cs == pack (unpack cs)
+
+prop_concatMap_singleton cs = concatMap singleton cs == cs
 
 props_take_drop = testGroup "drop, dropEnd, take, takeEnd" $
     testProperty "drop 0 = id"

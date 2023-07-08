@@ -14,7 +14,7 @@ pack,
 singleton,
 empty,
 append,
-concat,
+concat, concatMap,
 -- Consume:
 unpack,
 uncons, unsnoc,
