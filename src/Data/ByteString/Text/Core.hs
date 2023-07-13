@@ -15,6 +15,7 @@ singleton,
 empty,
 append,
 concat, concatMap,
+decodeUtf8,
 -- Consume:
 unpack,
 uncons, unsnoc,
@@ -48,6 +49,8 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Builder.Extra as Builder
 import GHC.Base hiding (empty, foldr)
+import Data.Bits ((.&.))
+import GHC.Enum
 import GHC.Num (Num (..))
 import qualified Data.List as List
 import Data.Tuple
@@ -341,6 +344,47 @@ copy = coerce BS.copy
 {-# INLINE copy #-}
 
 -- unpackCString# = fromBuilder . Builder.cstringUtf8
+
+decodeUtf8 :: BS.ByteString -> Text
+decodeUtf8 bs
+    | isUtf8 bs = UnsafeFromByteString bs
+    | otherwise = error "decodeUtf8: ByteString is not UTF-8"
+    -- TODO: Use a proper unicodeError.
+
+isUtf8 :: BS.ByteString -> Bool
+isUtf8 = loop IsUtf8
+  where
+    loop !status !bs =
+        case (status, BS.uncons bs) of
+            (IsUtf8, Nothing)
+                -> True
+            (IsUtf8, Just (w, bs'))
+                | isAsciiByte w -> loop IsUtf8 bs'
+                | isLeader1 w -> loop Check1Follower bs'
+                | isLeader2 w -> loop Check2Followers bs'
+                | isLeader3 w -> loop Check3Followers bs'
+            (s, Just (w, bs'))
+                | isFollower w -> loop (nextVerifyState s) bs'
+            _
+                -> False
+
+    isAsciiByte w = w < 0x80
+    isFollower w = w .&. 0xC0 == 0x80
+    isLeader1 w = w .&. 0xE0 == 0xC0
+    isLeader2 w = w .&. 0xF0 == 0xE0
+    isLeader3 w = w .&. 0xF8 == 0xF0
+
+data VerifyState
+    = IsUtf8
+    | Check3Followers
+    | Check2Followers
+    | Check1Follower
+  deriving (Eq, Enum)
+
+nextVerifyState :: VerifyState -> VerifyState
+nextVerifyState Check1Follower = IsUtf8
+nextVerifyState s = succ s
+
 
 
 ------ Errors
