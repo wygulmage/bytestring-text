@@ -36,10 +36,12 @@ charUtf8, stringUtf8, fromText,
 -- * Helpers:
 CharBytes(..), charBytes,
 foldrCharBytes,
+isUtf8,
 ) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Internal as IBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Builder.Extra as Builder
@@ -53,11 +55,14 @@ import GHC.Exts
 import GHC.Num (Num (..))
 import GHC.Real (fromIntegral)
 import qualified GHC.Word as GHC
-import GHC.Word (Word8)
+import GHC.Word
 import Data.Bits
     ((.&.), (.|.), complement, countLeadingZeros, shift)
+import GHC.Enum
 import Data.Char
+import qualified Data.List as List
 -- import Data.Coerce (coerce) -- provided by GHC.Base
+-- import Foreign.ForeignPtr
 import Foreign.Storable (sizeOf)
 import Text.Read
     ( Read (readPrec, readList, readListPrec)
@@ -65,6 +70,7 @@ import Text.Read
     )
 import Text.Show
 
+-- Doctests don't work in this module because it uses UnboxedTuples.
 
 newtype Text = UnsafeFromByteString BS.ByteString
   deriving newtype
@@ -86,6 +92,7 @@ append = (<>)
 {-# INLINE append #-}
 
 concat :: [Text] -> Text
+{-^ -}
 concat = mconcat
 {-# INLINE concat #-}
 
@@ -142,7 +149,12 @@ foldr f z = loop
 
 -- uncons is needed for foldr.
 uncons :: Text -> Maybe (Char, Text)
-{-^ O(1) If the 'Text' is null, 'Nothing'; otherwise 'Just' the first 'Char' and the rest of the 'Text'. -}
+{-^ O(1) If the 'Text' is null, 'Nothing'; otherwise 'Just' the first 'Char' and the rest of the 'Text'.
+
+@\ cs -> uncons cs == Just (unsafeHead cs, unsafeTail cs) ||  uncons cs == Nothing@
+
+@uncons (fromString "儵魚出遊從容") = Just ('儵', "魚出遊從容")@
+-}
 uncons cs
     | null cs = Nothing
     | otherwise = Just (case uncons# cs of (# c, cs' #) -> (c, cs'))
@@ -150,7 +162,14 @@ uncons cs
 
 -- null is needed for uncons.
 null :: Text -> Bool
-{-^ O(1) Is the text empty? -}
+{-^ O(1) Is the text empty?
+
+@\ cs -> null cs  ==  (length cs == 0)@
+
+@null (fromString "​") == False@
+
+@null (fromString "") == True@
+-}
 null = coerce BS.null
 {-# INLINE null #-}
 
@@ -158,7 +177,10 @@ unsafeHead :: Text -> Char
 {-^ O(1) Take the first 'Char' of a 'Text' without checking whether the 'Text' is 'null'. See also: 'head', 'uncons'.
 
 WARNING: The behavior of @unsafeHead txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
+
+@unsafeHead (fromString "змей") == 'з'@
 -}
+-- TODO: Was trying to use a Malayalam example here, but it kept crashing emacs or Windows terminal. unsafeHead (paanvu) = pa
 unsafeHead cs = case unsafeHeadLen# cs of (# c, _ #) -> c
 {-# INLINABLE unsafeHead #-}
 
@@ -219,6 +241,8 @@ unsafeTail :: Text -> Text
 {-^ O(1) Drop the first 'Char' from the 'Text'. See also: 'tail', 'uncons'.
 
 WARNING: The behavior of @unsafeTail txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
+
+@\ cs -> null cs   ||   length (tail cs)  ==  length cs - 1@
 -}
 unsafeTail (UnsafeFromByteString bs) = UnsafeFromByteString bs'
   where
@@ -228,9 +252,11 @@ unsafeTail (UnsafeFromByteString bs) = UnsafeFromByteString bs'
 -- Honestly I'm not sure why measureOff is part of the primary Text API or even what it's supposed to do. This is my best guess from the Data.Text documentation.
 measureOff :: Int -> Text -> Int
 {-^ @measureOff n cs@
-* if @n@ is 0 or @cs@ is 'empty', is zero;
+* if @cs@ is 'empty', is zero;
 * otherwise if @cs@ contains at least @n@ 'Char's, is the number of bytes used to encode the first @n@ 'Char's in @cs@;
 * otherwise it is @'length' cs@, negated.
+
+@\ n cs -> (null cs &&  m == 0) ||  (measureOff n cs == lengthWord8 (take n cs)  &&  n <= length cs) ||  (measureOff n cs == negate (length cs)  &&  n > length cs)@
 -}
 measureOff n (UnsafeFromByteString bs) = measureOff_loop 0 0
   where
@@ -487,6 +513,46 @@ char4 w0 w1 w2 w3 =
     !w2' = shift (fromIntegral (unmarkTail w2)) 6
     !w3' = fromIntegral (unmarkTail w3)
 
+decodeUtf8 :: BS.ByteString -> Text
+decodeUtf8 bs
+    | isUtf8 bs = UnsafeFromByteString bs
+    | otherwise = error "decodeUtf8: ByteString is not UTF-8"
+    -- TODO: Use a proper unicodeError.
+
+isUtf8 :: BS.ByteString -> Bool
+isUtf8 = loop IsUtf8
+  where
+    loop !status !bs =
+        case (status, BS.uncons bs) of
+            (IsUtf8, Nothing)
+                -> True
+            (IsUtf8, Just (w, bs'))
+                | isAsciiByte w -> loop IsUtf8 bs'
+                | isLeader1 w -> loop Check1Follower bs'
+                | isLeader2 w -> loop Check2Followers bs'
+                | isLeader3 w -> loop Check3Followers bs'
+            (s, Just (w, bs'))
+                | isFollower w -> loop (nextVerifyState s) bs'
+            _
+                -> False
+
+    isAsciiByte w = w < 0x80
+    isFollower w = w .&. 0xC0 == 0x80
+    isLeader1 w = w .&. 0xE0 == 0xC0
+    isLeader2 w = w .&. 0xF0 == 0xE0
+    isLeader3 w = w .&. 0xF8 == 0xF0
+
+data VerifyState
+    = IsUtf8
+    | Check3Followers
+    | Check2Followers
+    | Check1Follower
+  deriving (Eq, Enum)
+
+nextVerifyState :: VerifyState -> VerifyState
+nextVerifyState Check1Follower = IsUtf8
+nextVerifyState s = succ s
+
 {-
 wordToChar :: GHC.Word -> Char
 wordToChar x = chr (fromIntegral x)
@@ -504,3 +570,29 @@ word8ToInt :: Word8 -> Int
 word8ToInt = fromIntegral
 {-# INLINE word8ToInt #-}
 -}
+
+-- toForeignPtr0 :: BS.ByteString -> (ForeignPtr, Int)
+-- toForeignPtr0 bs =
+--     case IBS.toForeignPtr bs of
+--         (fp, off, len) -> let !fp' = plusForeignPtr fp off in (fp', len)
+
+-- isAscii :: ByteString -> Bool
+-- isAscii bs =
+--     case toForeginPtr0 bs of
+--         (fp, len) -> withForeignPtr & \ ptr ->
+--           let
+--             !vstart = alignPtr ptr 8
+
+
+-- isAscii8 :: Word64 -> Bool
+-- isAscii8 w8X8 = 0  ==  nonAsciiMask8 .&. w8X8
+--   where
+--     nonAsciiMask8 :: Word64
+--     nonAsciiMask8 = 0x8080808080808080
+
+-- data DecodeState
+--     = Done !Char
+--     | Need1Follower !Word
+--     | Need2Followers !Word
+--     | Need3Followers !Word
+--     | Fail (Maybe Word8)

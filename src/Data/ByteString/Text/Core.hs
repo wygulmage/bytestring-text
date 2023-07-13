@@ -53,6 +53,11 @@ import qualified Data.List as List
 import Data.Tuple
 -- import Data.Coerce (coerce) -- provided by GHC.Base
 
+{- doctest
+$setup
+>>> import Test.QuickCheck
+>>> import Control.Applicative
+-}
 
 {-
 newtype GraphemeCluster = UnsafeFromText Text
@@ -67,7 +72,10 @@ encodeUtf8 :: Text -> BS.ByteString
 encodeUtf8 (UnsafeFromByteString bs) = bs
 
 compareLength :: Text -> Int -> Ordering
-{-^ O(n) Compare the length of the 'Text' to the 'Int'. Only reads as much of the 'Text' as is needed to perform the comparison. -}
+{-^ O(n) Compare the length of the 'Text' to the 'Int'. Only reads as much of the 'Text' as is needed to perform the comparison.
+
+prop> \ txt i -> compareLength txt i == compare (length txt) i
+-}
 compareLength !cs !n
     | null cs = compare 0 n
     | otherwise = compareLength (unsafeTail cs) (n - 1)
@@ -109,6 +117,10 @@ init !cs = case unsnoc cs of
 {-# INLINABLE init #-}
 
 splitAt :: Int -> Text -> (Text, Text)
+{-^ O(n)
+
+prop> \ n txt -> splitAt n txt == (take n txt, drop n txt)
+-}
 splitAt !n !cs = case splitAt# n cs of (# tcs, dcs #) -> (tcs, dcs)
 {-# INLINE splitAt #-}
 
@@ -121,6 +133,8 @@ splitAt# !n !cs = (# tcs, dcs #)
 {-# INLINABLE splitAt# #-}
 
 span :: (Char -> Bool) -> Text -> (Text, Text)
+{-^ O(n)
+-}
 span p !cs = case span# p cs of (# tcs, dcs #) -> (tcs, dcs)
 {-# INLINE span #-}
 
@@ -150,7 +164,10 @@ dropWhile p = dropWhile_loop
 {-# INLINE [~0] dropWhile #-}
 
 dropEnd :: Int -> Text -> Text
-{-^ O(n) @dropEnd n txt@ is all except the last @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is 'empty'. -}
+{-^ O(n) @dropEnd n txt@ is all except the last @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is 'empty'.
+
+prop> \ n txt -> length (drop n txt) == (length txt - n) || (n > length txt  &&  null (drop n txt))
+-}
 dropEnd !n !cs
     | n <= 0
     = cs
@@ -177,6 +194,8 @@ take !n !cs = case splitAt# n cs of (# cs', _ #) -> cs'
 {-# NOTINLINE take #-}
 
 takeWhile :: (Char -> Bool) -> Text -> Text
+{-^ O(n)
+-}
 takeWhile p !cs = case span# p cs of (# cs', _ #) -> cs'
 {-# INLINE [~0] takeWhile #-}
 
@@ -186,6 +205,15 @@ takeEnd !n !cs = dropWord8 (lengthWord8 (dropEnd n cs)) cs
 {-# NOTINLINE takeEnd #-}
 
 takeWhileEnd :: (Char -> Bool) -> Text -> Text
+{-^ O(n)
+@takeWhileEnd p txt@ drops up to and including the last 'Char' of 'txt' that does not satisfy @p@, leaving only the characters at the end of 'txt' that satisfy @p@.
+
+>>> takeWhileEnd Char.isLower "Period is not lower."
+""
+
+>>> takeWhileEnd (not . Char.isUpper) "Period is not upper."
+"eriod is not upper."
+-}
 takeWhileEnd !p !cs = dropWord8 (lengthWord8 (dropWhileEnd p cs)) cs
 {-# INLINE [~0] takeWhileEnd #-}
 
@@ -237,21 +265,66 @@ reverse cs = -- Could first test whether cs is shorter than 2 Chars.
                      nil
                      cs)))
 
-isPrefixOf, isSuffixOf, isInfixOf :: Text -> Text -> Bool
+isPrefixOf :: Text -> Text -> Bool
+{-^ O(length prefix)
+>>> "pre" `isPrefixOf` "prefix"
+True
+
+>>> "fix" `isSuffixOf` "prefix"
+True
+
+>>> "fi" `isInfixOf` "prefix"
+True
+
+-}
 isPrefixOf = coerce BS.isPrefixOf
 {-# INLINE isPrefixOf #-}
+
+isSuffixOf :: Text -> Text -> Bool
+{-^ O(length suffix)
+>>> "pre" `isPrefixOf` "prefix"
+True
+
+>>> "fix" `isSuffixOf` "prefix"
+True
+
+>>> "fi" `isInfixOf` "prefix"
+True
+
+-}
 isSuffixOf = coerce BS.isSuffixOf
 {-# INLINE isSuffixOf #-}
+
+{-^ O(n * m)
+>>> "fi" `isInfixOf` "prefix"
+True
+-}
+isInfixOf :: Text -> Text -> Bool
 isInfixOf = coerce BS.isInfixOf
 {-# INLINE isInfixOf #-}
 
-stripPrefix, stripSuffix :: Text -> Text -> Maybe Text
+stripPrefix :: Text -> Text -> Maybe Text
+{-^ O(length prefix)
+>>> stripPrefix "pre" "prefix"
+Just "fix"
+
+prop> \ pre txt -> if pre `isPrefixOf` txt then stripPrefix pre txt == Just (drop (length pre) txt) else stripPrefix pre txt == Nothing
+
+prop> \ pre text -> case stripPrefix pre txt of{ Just txt' -> txt == append pre txt' ; Nothing -> True }
+-}
 stripPrefix = coerce BS.stripPrefix
 {-# INLINE stripPrefix #-}
+stripSuffix :: Text -> Text -> Maybe Text
+{-^ O(length suffix)
+-}
 stripSuffix = coerce BS.stripSuffix
 {-# INLINE stripSuffix #-}
 
 singleton :: Char -> Text
+{-^ O(1)
+>>> singleton 'a'
+"a"
+-}
 -- singleton = toTextWith 4 . charUtf8  -- Using the Builder-based definition leads to massive code size blowup.
 singleton !c = UnsafeFromByteString $ case charBytes c of
     CharBytes1 w0 -> BS.singleton w0
