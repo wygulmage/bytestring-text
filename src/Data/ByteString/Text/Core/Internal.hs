@@ -411,43 +411,14 @@ spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 {-^ O(n)
 @spanUtf8 bs@ splits @bs@ into a contiguous (possibly empty) prefix of UTF-8 text and the (possibly empty) non-UTF-8 remainder of @bs@.
 -}
-spanUtf8 bs = checkUtf8 0 0
+spanUtf8 bs = case checkUtf8 0 0 of (# txt, bs' #) -> (txt, bs')
   where
     -- TODO: May want to manually use Int# for this loop to make sure it's fast even without optimization.
-    checkUtf8 :: Int -> Int -> (Text, BS.ByteString)
+    checkUtf8 :: Int -> Int -> (# Text, BS.ByteString #)
     checkUtf8 !s !i
         | i < BS.length bs
         = let
             !w = BS.unsafeIndex bs i -- safe because we just checked the length.
-          -- shift y x:
-          --   1 0 = 1
-          --   2 0 = 2
-          --   3 0 = 3
-          --   4 0 = 4
-          --   0 0 = 0
-          --   0 1 = 0
-          --   0 2 = 0
-          --   0 3 = 0
-          -- I want a function where for (0 <= x <= 3) (0 <= y <= 4)
-          -- f 0 1 -> 0 -- ASCII
-          -- f 1 0 -> 0 -- last follower
-          -- f 0 2 -> 1 -- leader of 1
-          -- f 2 0 -> 1 -- 2nd-to-last follower
-          -- f 0 3 -> 2 -- leader of 2
-          -- f 3 0 -> 2 -- 3rd-to-last follower
-          -- f 0 4 -> 3 -- leader of 3
-          -- f 0 0 > 3
-          -- f 1 1 > 3
-          -- f 1 2 > 3
-          -- f 1 4 > 3
-          -- f 2 1 > 3
-          -- f 2 2 > 3
-          -- f 2 3 > 3
-          -- f 2 4 > 3
-          -- f 3 1 > 3
-          -- f 3 2 > 3
-          -- f 3 4 > 3
-          -- f _ _ = don't care
           in case s of
             0 ->
                 case utf8LengthByLeader w - 1 of
@@ -459,27 +430,27 @@ spanUtf8 bs = checkUtf8 0 0
                 | isFollower w -> checkUtf8 (s - 1) (i + 1)
                 | otherwise    -> failAt i
         | s == 0
-        = (UnsafeFromByteString bs, BS.empty)
+        = (# UnsafeFromByteString bs, BS.empty #)
         | otherwise
         -- There's an incomplete code point at the end of the ByteString....
         = backtrack (i - 1)
 
-    backtrack :: Int -> (Text, BS.ByteString)
+    backtrack :: Int -> (# Text, BS.ByteString #)
     backtrack !j
         -- safe because if it wasn't there we'd have failed going forward:
         | isFollower (BS.unsafeIndex bs j) = backtrack (j - 1)
         | otherwise                        = failAt j
         -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
 
-    failAt :: Int -> (Text, BS.ByteString)
-    failAt !i = (txt, bs')
+    failAt :: Int -> (# Text, BS.ByteString #)
+    failAt !i = (# txt, bs' #)
       where
         -- Don't return thunks.
         !txt = UnsafeFromByteString (BS.unsafeTake i bs)
         !bs' = BS.unsafeDrop i bs
 
     isFollower w = w .&. 0xC0 == 0x80
-
+{-# INLINE spanUtf8 #-}
 
 utf8LengthByLeader :: GHC.Word8 -> Int
 {-^ @utf8LengthByLeader w@ is
