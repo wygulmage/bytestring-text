@@ -16,6 +16,7 @@ Text (..),
 -- * Construct:
 pack,
 append, concat, empty,
+decodeUtf8,
 -- * Consume:
 unpack,
 foldr,
@@ -396,15 +397,107 @@ chunkOverhead :: Int
 chunkOverhead = 2 * sizeOf (undefined :: Int)
 
 ------ Helpers ------
+decodeUtf8 :: BS.ByteString -> Text
+decodeUtf8 bs = case spanUtf8 bs of
+    (txt, bs')
+        | BS.null bs' -> txt
+        | otherwise   -> error "decodeUtf8: ByteString is not UTF-8"
+    -- TODO: Use a proper unicodeError.
+
+isUtf8 :: BS.ByteString -> Bool
+isUtf8 bs = case spanUtf8 bs of (_, bs') -> BS.null bs'
+
+spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
+{-^ O(n)
+@spanUtf8 bs@ splits @bs@ into a contiguous (possibly empty) prefix of UTF-8 text and the (possibly empty) non-UTF-8 remainder of @bs@.
+-}
+spanUtf8 bs = checkUtf8 0 0
+  where
+    -- TODO: May want to manually use Int# for this loop to make sure it's fast even without optimization.
+    checkUtf8 :: Int -> Int -> (Text, BS.ByteString)
+    checkUtf8 !s !i
+        | i < BS.length bs
+        = let
+            !w = BS.unsafeIndex bs i -- safe because we just checked the length.
+          -- shift y x:
+          --   1 0 = 1
+          --   2 0 = 2
+          --   3 0 = 3
+          --   4 0 = 4
+          --   0 0 = 0
+          --   0 1 = 0
+          --   0 2 = 0
+          --   0 3 = 0
+          -- I want a function where for (0 <= x <= 3) (0 <= y <= 4)
+          -- f 0 1 -> 0 -- ASCII
+          -- f 1 0 -> 0 -- last follower
+          -- f 0 2 -> 1 -- leader of 1
+          -- f 2 0 -> 1 -- 2nd-to-last follower
+          -- f 0 3 -> 2 -- leader of 2
+          -- f 3 0 -> 2 -- 3rd-to-last follower
+          -- f 0 4 -> 3 -- leader of 3
+          -- f 0 0 > 3
+          -- f 1 1 > 3
+          -- f 1 2 > 3
+          -- f 1 4 > 3
+          -- f 2 1 > 3
+          -- f 2 2 > 3
+          -- f 2 3 > 3
+          -- f 2 4 > 3
+          -- f 3 1 > 3
+          -- f 3 2 > 3
+          -- f 3 4 > 3
+          -- f _ _ = don't care
+          in case s of
+            0 ->
+                case utf8LengthByLeader w - 1 of
+                    l
+                        -- Use unsigned underflow to only test once:
+                        | intToWord l <= 3 -> checkUtf8 l (i + 1)
+                        | otherwise -> failAt i
+            _
+                | isFollower w -> checkUtf8 (s - 1) (i + 1)
+                | otherwise    -> failAt i
+        | s == 0
+        = (UnsafeFromByteString bs, BS.empty)
+        | otherwise
+        -- There's an incomplete code point at the end of the ByteString....
+        = backtrack (i - 1)
+
+    backtrack :: Int -> (Text, BS.ByteString)
+    backtrack !j
+        -- safe because if it wasn't there we'd have failed going forward:
+        | isFollower (BS.unsafeIndex bs j) = backtrack (j - 1)
+        | otherwise                        = failAt j
+        -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
+
+    failAt :: Int -> (Text, BS.ByteString)
+    failAt !i = (txt, bs')
+      where
+        -- Don't return thunks.
+        !txt = UnsafeFromByteString (BS.unsafeTake i bs)
+        !bs' = BS.unsafeDrop i bs
+
+    isFollower w = w .&. 0xC0 == 0x80
+
 
 utf8LengthByLeader :: GHC.Word8 -> Int
+{-^ @utf8LengthByLeader w@ is
+* 0 if w is a follower
+* 1 if w is ASCII
+* 2 if w is a leader of 1
+* 3 if w is a leader of 2
+* 4 if w is a leader of 3
+-}
 utf8LengthByLeader w8 = GHC.I# (n `GHC.xorI#` (n <=# 0#))
   where
     !(GHC.I# n) = countLeadingZeros (complement w8)
 {-# INLINE utf8LengthByLeader #-}
 
+{-
 utf8Length :: Char -> Int
 utf8Length ( GHC.C# c# ) = GHC.I# ( utf8Length# c# )
+-}
 
 utf8Length# :: GHC.Char# -> GHC.Int#
 utf8Length# c =
@@ -428,15 +521,6 @@ charBytes c@( C# c# ) = case utf8Length# c# of
     3# -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
     _ -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
 {-# INLINABLE charBytes #-}
-
--- foldrCharBytes :: (Word8 -> b -> b) -> b -> CharBytes -> b
--- foldrCharBytes f z = go
---   where
---     go (CharBytes1 w0) = f w0 z
---     go (CharBytes2 w0 w1) = f w0 (f w1 z)
---     go (CharBytes3 w0 w1 w2) = f w0 (f w1 (f w2 z))
---     go (CharBytes4 w0 w1 w2 w3) = f w0 (f w1 (f w2 (f w3 z)))
--- {-# INLINE foldrCharBytes #-}
 
 foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b
 foldrCharBytes f z c@( C# c# ) = case utf8Length# c# of
@@ -511,6 +595,10 @@ char4 w0 w1 w2 w3 =
     !w2' = shift (fromIntegral (unmarkTail w2)) 6
     !w3' = fromIntegral (unmarkTail w3)
 
+
+intToWord :: Int -> GHC.Word
+intToWord = fromIntegral
+{-# INLINE intToWord #-}
 {-
 wordToChar :: GHC.Word -> Char
 wordToChar x = chr (fromIntegral x)
@@ -534,23 +622,3 @@ word8ToInt = fromIntegral
 --     case IBS.toForeignPtr bs of
 --         (fp, off, len) -> let !fp' = plusForeignPtr fp off in (fp', len)
 
--- isAscii :: ByteString -> Bool
--- isAscii bs =
---     case toForeginPtr0 bs of
---         (fp, len) -> withForeignPtr & \ ptr ->
---           let
---             !vstart = alignPtr ptr 8
-
-
--- isAscii8 :: Word64 -> Bool
--- isAscii8 w8X8 = 0  ==  nonAsciiMask8 .&. w8X8
---   where
---     nonAsciiMask8 :: Word64
---     nonAsciiMask8 = 0x8080808080808080
-
--- data DecodeState
---     = Done !Char
---     | Need1Follower !Word
---     | Need2Followers !Word
---     | Need3Followers !Word
---     | Fail (Maybe Word8)
