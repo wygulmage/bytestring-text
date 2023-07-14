@@ -41,7 +41,6 @@ foldrCharBytes,
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
-import qualified Data.ByteString.Internal as IBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Builder.Extra as Builder
@@ -59,9 +58,7 @@ import GHC.Word
 import Data.Bits
     ((.&.), (.|.), complement, countLeadingZeros, shift)
 import Data.Char
-import qualified Data.List as List
 -- import Data.Coerce (coerce) -- provided by GHC.Base
--- import Foreign.ForeignPtr
 import Foreign.Storable (sizeOf)
 import Text.Read
     ( Read (readPrec, readList, readListPrec)
@@ -190,7 +187,7 @@ WARNING: The behavior of @uncons# txt@ is unspecified if @txt@ is 'null'. (Assum
 -}
 uncons# cs = case unsafeHeadLen# cs of
     (# c, l #) -> let !cs' = dropWord8 (I# l) cs in (# c, cs' #)
-{-# INLINABLE uncons# #-}
+{-# INLINE uncons# #-}
 
 unsafeHeadLen# :: Text -> (# Char, Int# #)
 unsafeHeadLen# (UnsafeFromByteString bs) = (# c, l #)
@@ -246,7 +243,7 @@ WARNING: The behavior of @unsafeTail txt@ is unspecified if @txt@ is 'null'. (As
 unsafeTail (UnsafeFromByteString bs) = UnsafeFromByteString bs'
   where
     bs' = BS.unsafeDrop (utf8LengthByLeader (BS.unsafeHead bs)) bs
-{-# INLINABLE unsafeTail #-}
+{-# INLINE unsafeTail #-}
 
 -- Honestly I'm not sure why measureOff is part of the primary Text API or even what it's supposed to do. This is my best guess from the Data.Text documentation.
 measureOff :: Int -> Text -> Int
@@ -269,36 +266,7 @@ measureOff n (UnsafeFromByteString bs) = measureOff_loop 0 0
           in measureOff_loop (charCount + 1) (byteCount + charWidth)
 -- TODO: Check if it's more efficient to loop over every byte and count only leaders.
 
-{-
-measureOffEnd :: Int -> Text -> Int
-{-^ @measureOff n cs@
-* if @n@ is 0 or @cs@ is 'empty', is zero;
-* otherwise if @cs@ contains at least @n@ 'Char's, is the number of bytes used to encode the last @n@ 'Char's in @cs@;
-* otherwise it is @'length' cs@, negated.
--}
-measureOffEnd n (UnsafeFromByteString bs) =
-    measureOffEnd_loop 0 end
-  where
-    !end = BS.length bs - 1
-    measureOffEnd_loop !charCount !i
-        | charCount >= n
-        = end - i
-        | i < 0
-        = negate charCount
-        | otherwise
-        = let
-            charWidth
-                | w0 <= 0x7F = 1
-                | w1 >= 0xC0 = 2
-                | w2 >= 0xE0 = 3
-                | otherwise  = 4
-            !w0 = BS.unsafeIndex bs i
-            w1 = BS.unsafeIndex bs (i - 1)
-            w2 = BS.unsafeIndex bs (i - 2)
-          in measureOffEnd_loop (charCount + 1) (i - charWidth)
--}
-
---- Operations on the underlying 'ByteString':
+------ Operations on the underlying 'ByteString': ------
 
 lengthWord8 :: Text -> Int
 {-^ O(1) The length of the 'Text' in UTF-8 code units ('Word8').
@@ -363,7 +331,7 @@ fromText :: Text -> Builder
 fromText = coerce Builder.byteString
 {-# INLINE fromText #-}
 
--- Can't name this 'fromString', so we'll keep ByteString's name until we export it.
+-- Can't name this 'fromString', so we'll keep ByteString's name until we export it in a Builder module.
 stringUtf8 :: [Char] -> Builder
 stringUtf8 = coerce Builder.stringUtf8
 {-# INLINE stringUtf8 #-}
@@ -406,6 +374,7 @@ decodeUtf8 bs
 isUtf8 :: BS.ByteString -> Bool
 isUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
 
+{-
 spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 {-^ O(n)
 @spanUtf8 bs@ splits @bs@ into a contiguous (possibly empty) prefix of UTF-8 text and the (possibly empty) non-UTF-8 remainder of @bs@.
@@ -416,6 +385,7 @@ spanUtf8 bs = (txt, bs')
     !txt = UnsafeFromByteString (BS.unsafeTake i bs)
     !bs' = BS.unsafeDrop i bs
 {-# INLINE spanUtf8 #-}
+-}
 
 {- Note: What to consider an invalid code point or byte sequence
 A leader without enough followers: The leader and its followers are one invalid byte sequence. (This can be up to 3 bytes.)
@@ -426,25 +396,28 @@ countUtf8Bytes# :: BS.ByteString -> Int#
 {-^ O(n)
 @countUtf8Bytes# bs# is the number of contiguous UTF-8 encoding bytes from the start of the 'ByteString' (or, equivalently, the index of the first non-UTF-8-encoding byte).
 -}
-countUtf8Bytes# bs = checkUtf8 0 0#
+countUtf8Bytes# bs = checkUtf8 0# 0#
   where
     !( I# length_bs ) = BS.length bs
-    checkUtf8 :: Int -> Int# -> Int#
+    checkUtf8 :: Int# -> Int# -> Int#
     checkUtf8 !s !i
         | isTrue# (i <# length_bs)
         = let
-            !l = utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) -- safe because we just checked the length.
+            !( I# l) =
+              -- safe because we just checked the length:
+              utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) - 1
           in case s of
-            0 ->
-                case l - 1 of
-                    l'
-                        -- Use unsigned underflow to only test once:
-                        | intToWord l <= 3 -> checkUtf8 l' ( i +# 1# )
-                        | otherwise        -> i
+            0#
+                -- Use unsigned underflow to only test once:
+                | isTrue# ( int2Word# l `leWord#` 3## ) ->
+                    checkUtf8 l ( i +# 1# )
+                | otherwise ->
+                    i
             _
-                | l == 0    -> checkUtf8 (s - 1) ( i +# 1# )
+                | isTrue# ( l ==# -1# ) ->
+                    checkUtf8 ( s -# 1# ) ( i +# 1# )
                 | otherwise -> i
-        | s == 0
+        | isTrue# ( s ==# 0# )
         = i
         | otherwise
         -- There's an incomplete code point at the end of the ByteString....
@@ -454,7 +427,7 @@ countUtf8Bytes# bs = checkUtf8 0 0#
     backtrack j
         -- safe because if it wasn't there we'd have failed going forward:
         | isFollower (BS.unsafeIndex bs ( I# j )) = backtrack ( j -# 1# )
-        | otherwise                        = j
+        | otherwise                               = j
         -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
 
     isFollower w = w .&. 0xC0 == 0x80

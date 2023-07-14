@@ -261,13 +261,10 @@ reverse cs = -- Could first test whether cs is shorter than 2 Chars.
             (lengthWord8 cs)
             (build (\ cons nil ->
                 foldl
-                    (\ cs' c ->
-                        foldrCharBytes
-                            (\ w8 w8s' -> w8 `cons` w8s')
-                            cs'
-                            c)
+                    (\ cs' c -> foldrCharBytes cons cs' c)
                      nil
                      cs)))
+{-# INLINE [~0] reverse #-}
 
 isPrefixOf :: Text -> Text -> Bool
 {-^ O(length prefix)

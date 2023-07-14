@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Prelude hiding
-    (concatMap, drop, dropWhile, elem, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, take, takeWhile)
+    (concatMap, drop, dropWhile, elem, head, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, take, takeWhile)
 import Data.ByteString.Text.Core
 import Test.Tasty
 import Test.Tasty.QuickCheck
@@ -21,7 +21,7 @@ props = testGroup "All Properties" $
     testProperty "concatMap singleton = id" prop_concatMap_singleton :
     props_take_drop :
     props_takeWhile_dropWhile :
-    testProperty "reverse" prop_reverse_reverse :
+    props_reverse :
     testProperty "copy" prop_copy :
     testProperty "compareLength = compare . length"
         prop_compareLength :
@@ -90,9 +90,19 @@ prop_span_True cs = span (\_-> True) cs == (cs, empty)
 
 prop_compareLength cs n = compareLength cs n == compare (length cs) n
 
+props_reverse = testGroup "reverse" $
+    testProperty "reverse . reverse = id" prop_reverse_reverse :
+    testProperty "length txt == length (reverse txt)" prop_reverse_length :
+    testProperty "head txt == last (reverse txt)" prop_reverse_head_last :
+    testProperty "last txt == head (reverse txt)" prop_reverse_last_head :
+    []
+
 prop_reverse_reverse cs = cs == reverse (reverse cs)
 
 prop_reverse_length cs = length cs == length (reverse cs)
+
+prop_reverse_head_last cs = null cs || head cs == last (reverse cs)
+prop_reverse_last_head cs = null cs || last cs == head (reverse cs)
 
 
 props_is_fixOf = testGroup "isPrefixOf, isSuffixOf, isInfixOf" $
