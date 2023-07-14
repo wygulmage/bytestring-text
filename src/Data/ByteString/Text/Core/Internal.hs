@@ -398,59 +398,66 @@ chunkOverhead = 2 * sizeOf (undefined :: Int)
 
 ------ Helpers ------
 decodeUtf8 :: BS.ByteString -> Text
-decodeUtf8 bs = case spanUtf8 bs of
-    (txt, bs')
-        | BS.null bs' -> txt
-        | otherwise   -> error "decodeUtf8: ByteString is not UTF-8"
+decodeUtf8 bs
+        | isUtf8 bs = UnsafeFromByteString bs
+        | otherwise = error "decodeUtf8: ByteString is not UTF-8"
     -- TODO: Use a proper unicodeError.
 
 isUtf8 :: BS.ByteString -> Bool
-isUtf8 bs = case spanUtf8 bs of (_, bs') -> BS.null bs'
+isUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
 
 spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 {-^ O(n)
 @spanUtf8 bs@ splits @bs@ into a contiguous (possibly empty) prefix of UTF-8 text and the (possibly empty) non-UTF-8 remainder of @bs@.
 -}
-spanUtf8 bs = case checkUtf8 0 0 of (# txt, bs' #) -> (txt, bs')
+spanUtf8 bs = (txt, bs')
   where
-    -- TODO: May want to manually use Int# for this loop to make sure it's fast even without optimization.
-    checkUtf8 :: Int -> Int -> (# Text, BS.ByteString #)
+    i = I# ( countUtf8Bytes# bs )
+    !txt = UnsafeFromByteString (BS.unsafeTake i bs)
+    !bs' = BS.unsafeDrop i bs
+{-# INLINE spanUtf8 #-}
+
+{- Note: What to consider an invalid code point or byte sequence
+A leader without enough followers: The leader and its followers are one invalid byte sequence. (This can be up to 3 bytes.)
+A follower without a leader: The lone follower is one invalid byte sequence (exactly 1 byte).
+-}
+
+countUtf8Bytes# :: BS.ByteString -> Int#
+{-^ O(n)
+@countUtf8Bytes# bs# is the number of contiguous UTF-8 encoding bytes from the start of the 'ByteString' (or, equivalently, the index of the first non-UTF-8-encoding byte).
+-}
+countUtf8Bytes# bs = checkUtf8 0 0#
+  where
+    !( I# length_bs ) = BS.length bs
+    checkUtf8 :: Int -> Int# -> Int#
     checkUtf8 !s !i
-        | i < BS.length bs
+        | isTrue# (i <# length_bs)
         = let
-            !w = BS.unsafeIndex bs i -- safe because we just checked the length.
+            !l = utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) -- safe because we just checked the length.
           in case s of
             0 ->
-                case utf8LengthByLeader w - 1 of
-                    l
+                case l - 1 of
+                    l'
                         -- Use unsigned underflow to only test once:
-                        | intToWord l <= 3 -> checkUtf8 l (i + 1)
-                        | otherwise -> failAt i
+                        | intToWord l <= 3 -> checkUtf8 l' ( i +# 1# )
+                        | otherwise        -> i
             _
-                | isFollower w -> checkUtf8 (s - 1) (i + 1)
-                | otherwise    -> failAt i
+                | l == 0    -> checkUtf8 (s - 1) ( i +# 1# )
+                | otherwise -> i
         | s == 0
-        = (# UnsafeFromByteString bs, BS.empty #)
+        = i
         | otherwise
         -- There's an incomplete code point at the end of the ByteString....
-        = backtrack (i - 1)
+        = backtrack ( i -# 1# )
 
-    backtrack :: Int -> (# Text, BS.ByteString #)
-    backtrack !j
+    backtrack :: Int# -> Int#
+    backtrack j
         -- safe because if it wasn't there we'd have failed going forward:
-        | isFollower (BS.unsafeIndex bs j) = backtrack (j - 1)
-        | otherwise                        = failAt j
+        | isFollower (BS.unsafeIndex bs ( I# j )) = backtrack ( j -# 1# )
+        | otherwise                        = j
         -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
 
-    failAt :: Int -> (# Text, BS.ByteString #)
-    failAt !i = (# txt, bs' #)
-      where
-        -- Don't return thunks.
-        !txt = UnsafeFromByteString (BS.unsafeTake i bs)
-        !bs' = BS.unsafeDrop i bs
-
     isFollower w = w .&. 0xC0 == 0x80
-{-# INLINE spanUtf8 #-}
 
 utf8LengthByLeader :: GHC.Word8 -> Int
 {-^ @utf8LengthByLeader w@ is
