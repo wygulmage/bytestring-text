@@ -36,6 +36,7 @@ Builder (..),
 toText, toTextWith,
 charUtf8, stringUtf8, fromText,
 -- * Helpers:
+isValidUtf8,
 CharBytes(..), charBytes,
 foldrCharBytes,
 ) where
@@ -186,14 +187,23 @@ uncons# :: Text -> (# Char, Text #)
 
 WARNING: The behavior of @uncons# txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
 -}
-uncons# cs = case unsafeHeadLen# cs of
-    (# c, l #) -> let !cs' = dropWord8 (I# l) cs in (# c, cs' #)
+uncons# cs =
+    case unsafeHeadLen# cs of
+        (# c, l #) ->
+          let !cs' = dropWord8 (I# l) cs
+          in (# c, cs' #)
 {-# INLINE uncons# #-}
 
 unsafeHeadLen# :: Text -> (# Char, Int# #)
+{-^ O(1)
+The first 'Char' of the 'Text' and the number of bytes needed to encode that 'Char' in UTF-8.
+
+WARNING: @unsafeHeadLen# txt@ is unspecified if @null txt@ is 'True'.
+-}
 unsafeHeadLen# (UnsafeFromByteString bs) = (# c, l #)
   where
-    !c = case l of
+    -- For now this is a thunk to make `uncons` lazier, but could force it or produce a Char# rather than a Char.
+    c = case l of
         1# -> char1 b0
         2# -> char2 b0 b1
         3# -> char3 b0 b1 b2
@@ -368,16 +378,16 @@ chunkOverhead = 2 * sizeOf (undefined :: Int)
 ------ Helpers ------
 decodeUtf8 :: BS.ByteString -> Text
 decodeUtf8 bs
-        | isUtf8 bs = UnsafeFromByteString bs
+        | isValidUtf8 bs = UnsafeFromByteString bs
         | otherwise = error "decodeUtf8: ByteString is not UTF-8"
     -- TODO: Use a proper unicodeError.
 
-isUtf8 :: BS.ByteString -> Bool
+isValidUtf8 :: BS.ByteString -> Bool
 #if MIN_VERSION_bytestring(0,11,5)
 -- The earlier version was buggy.
-isUtf8 = BS.isValidUtf8
+isValidUtf8 = BS.isValidUtf8
 #else
-isUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
+isValidUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
 #endif
 
 {-

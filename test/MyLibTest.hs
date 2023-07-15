@@ -3,20 +3,38 @@ module Main (main) where
 import Prelude hiding
     (concatMap, drop, dropWhile, elem, head, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, take, takeWhile)
 import Data.ByteString.Text.Core
+import Data.ByteString.Text.Core.Internal
 import Test.Tasty
 import Test.Tasty.QuickCheck
 import Test.QuickCheck (Arbitrary (..))
-import GHC.Exts (fromList, toList)
+import GHC.Exts (fromString, fromList, toList)
 import qualified Data.List as List
+import qualified Data.ByteString as BS
+import qualified Data.Text as Other
+import qualified Data.Text.Encoding as Other
 
 instance Arbitrary Text where
    arbitrary = fmap fromList arbitrary
    shrink = fmap fromList . shrink . toList
 
+newtype BS = BS BS.ByteString
+  deriving (Show)
+getBS :: BS -> BS.ByteString
+getBS (BS bs) = bs
+
+instance Arbitrary BS where
+    arbitrary = fmap (BS . BS.pack) arbitrary
+    shrink = fmap (BS . BS.pack) . shrink . BS.unpack . getBS
+
 main :: IO ()
 main = defaultMain props
 
+
 props = testGroup "All Properties" $
+    testProperty "toList . fromString gives the same result as Data.Text"
+        prop_text_toList_fromString :
+    testProperty "toList . decodeUtf8 gives the same result as Data.Text"
+        prop_text_toList_decodeUtf8 :
     testProperty "pack . unpack = id" prop_pack_unpack :
     testProperty "concatMap singleton = id" prop_concatMap_singleton :
     props_take_drop :
@@ -29,6 +47,21 @@ props = testGroup "All Properties" $
     -- testProperty "map id = id"
     --     prop_map_id :
     []
+
+prop_text_toList_fromString str = toList res1 == toList res2
+  where
+    res1 :: Text
+    res1 = fromString str
+    res2 :: Other.Text
+    res2 = fromString str
+
+prop_text_toList_decodeUtf8 (BS bs) =
+    not (isValidUtf8 bs) || toList res1 == toList res2
+  where
+    res1 :: Text
+    res1 = decodeUtf8 bs
+    res2 :: Other.Text
+    res2 = Other.decodeUtf8 bs
 
 prop_pack_unpack cs = cs == pack (unpack cs)
 
