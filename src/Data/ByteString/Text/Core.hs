@@ -270,37 +270,23 @@ isPrefixOf :: Text -> Text -> Bool
 {-^ O(length prefix)
 >>> "pre" `isPrefixOf` "prefix"
 True
-
->>> "fix" `isSuffixOf` "prefix"
-True
-
->>> "fi" `isInfixOf` "prefix"
-True
-
 -}
 isPrefixOf = coerce BS.isPrefixOf
 {-# INLINE isPrefixOf #-}
 
 isSuffixOf :: Text -> Text -> Bool
 {-^ O(length suffix)
->>> "pre" `isPrefixOf` "prefix"
-True
-
 >>> "fix" `isSuffixOf` "prefix"
 True
-
->>> "fi" `isInfixOf` "prefix"
-True
-
 -}
 isSuffixOf = coerce BS.isSuffixOf
 {-# INLINE isSuffixOf #-}
 
+isInfixOf :: Text -> Text -> Bool
 {-^ O(n * m)
 >>> "fi" `isInfixOf` "prefix"
 True
 -}
-isInfixOf :: Text -> Text -> Bool
 isInfixOf = coerce BS.isInfixOf
 {-# INLINE isInfixOf #-}
 

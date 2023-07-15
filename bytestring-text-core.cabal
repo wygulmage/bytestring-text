@@ -24,8 +24,8 @@ library
     Data.ByteString.Text.Core.Internal
   other-extensions:    NoImplicitPrelude
   build-depends:
-    base ^>=4.13.0.0,
-    bytestring ^>=0.10.10.1,
+    base >=4.13.0.0 && < 4.19,
+    bytestring >=0.10.10.1 && < 0.13,
     deepseq ^>=1.4.4.0,
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -37,7 +37,7 @@ test-suite bytestring-text-core-test
   main-is:             MyLibTest.hs
   build-depends:
     base ^>=4.13.0.0,
-    bytestring ^>=0.10.10.1,
+    bytestring >=0.10.10.1 && < 0.13,
     bytestring-text-core,
     tasty-quickcheck,
     tasty,

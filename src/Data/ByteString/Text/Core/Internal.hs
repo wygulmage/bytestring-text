@@ -6,6 +6,7 @@
            , MagicHash
            , UnboxedTuples
            , TypeFamilies
+           , CPP
   #-}
 
 {- This is an internal module of bytestring-text, and is not subject to the usual package versioning policy for API changes. By using this API you can violate invariants that are assumed in the 'Data.ByteString.Text' API, and even violate memory safety! Have fun!
@@ -192,7 +193,7 @@ uncons# cs = case unsafeHeadLen# cs of
 unsafeHeadLen# :: Text -> (# Char, Int# #)
 unsafeHeadLen# (UnsafeFromByteString bs) = (# c, l #)
   where
-    c = case l of
+    !c = case l of
         1# -> char1 b0
         2# -> char2 b0 b1
         3# -> char3 b0 b1 b2
@@ -372,7 +373,12 @@ decodeUtf8 bs
     -- TODO: Use a proper unicodeError.
 
 isUtf8 :: BS.ByteString -> Bool
+#if MIN_VERSION_bytestring(0,11,5)
+-- The earlier version was buggy.
+isUtf8 = BS.isValidUtf8
+#else
 isUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
+#endif
 
 {-
 spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
@@ -414,14 +420,15 @@ countUtf8Bytes# bs = checkUtf8 0# 0#
                 | otherwise ->
                     i
             _
-                | isTrue# ( l ==# -1# ) ->
-                    checkUtf8 ( s -# 1# ) ( i +# 1# )
-                | otherwise -> i
-        | isTrue# ( s ==# 0# )
-        = i
+                | otherwise ->
+                    case l of
+                      -1# -> checkUtf8 ( s -# 1# ) ( i +# 1# )
+                      _   -> i
         | otherwise
+        = case s of
+            0# -> i
         -- There's an incomplete code point at the end of the ByteString....
-        = backtrack ( i -# 1# )
+            _ -> backtrack ( i -# 1# )
 
     backtrack :: Int# -> Int#
     backtrack j
@@ -439,6 +446,7 @@ utf8LengthByLeader :: GHC.Word8 -> Int
 * 2 if w is a leader of 1
 * 3 if w is a leader of 2
 * 4 if w is a leader of 3
+* 5 to 8 for invalid bytes
 -}
 utf8LengthByLeader w8 = GHC.I# (n `GHC.xorI#` (n <=# 0#))
   where
@@ -470,7 +478,8 @@ charBytes c@( C# c# ) = case utf8Length# c# of
     1# -> CharBytes1 (unChar1 c)
     2# -> case unChar2# c of (# w0, w1 #) -> CharBytes2 w0 w1
     3# -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
-    _ -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
+    4# -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
+    _ -> errorWithoutStackTrace "charBytes: bad Char"
 {-# INLINABLE charBytes #-}
 
 foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b

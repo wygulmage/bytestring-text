@@ -20,6 +20,7 @@ import Control.Exception (Exception, throw)
 import Data.Typeable (Typeable)
 import Data.Word
 import Numeric (showHex)
+import Text.Show
 
 type OnError a b = String -> Maybe a -> Maybe b
 {-^ @OnError a b@ is the type of a handler for an error that includes a description and may include a cause of type @a@. The handler may provide 'Just' a replacement value of type @b@, or 'Nothing', or it may 'throw' an 'Exception'.
