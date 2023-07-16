@@ -7,6 +7,7 @@
            , UnboxedTuples
            , TypeFamilies
            , CPP
+           , MultiWayIf
   #-}
 
 {- This is an internal module of bytestring-text, and is not subject to the usual package versioning policy for API changes. By using this API you can violate invariants that are assumed in the 'Data.ByteString.Text' API, and even violate memory safety! Have fun!
@@ -58,7 +59,9 @@ import GHC.Real (fromIntegral)
 import qualified GHC.Word as GHC
 import GHC.Word
 import Data.Bits
-    ((.&.), (.|.), complement, countLeadingZeros, shift)
+    ( (.&.), (.|.), complement, countLeadingZeros
+    , shift, unsafeShiftL, unsafeShiftR,
+    )
 import Data.Char
 -- import Data.Coerce (coerce) -- provided by GHC.Base
 import Foreign.Storable (sizeOf)
@@ -273,8 +276,9 @@ measureOff n (UnsafeFromByteString bs) = measureOff_loop 0 0
         | byteCount >= BS.length bs  -- The end of the Text was reached without counting enough Chars.
         = negate charCount
         | otherwise
-        = let charWidth = utf8LengthByLeader (BS.unsafeIndex bs byteCount)
-          in measureOff_loop (charCount + 1) (byteCount + charWidth)
+        = measureOff_loop
+            (charCount + 1)
+            (byteCount + utf8LengthByLeader (BS.unsafeIndex bs byteCount))
 -- TODO: Check if it's more efficient to loop over every byte and count only leaders.
 
 ------ Operations on the underlying 'ByteString': ------
@@ -387,7 +391,8 @@ isValidUtf8 :: BS.ByteString -> Bool
 -- The earlier version was buggy.
 isValidUtf8 = BS.isValidUtf8
 #else
-isValidUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
+-- isValidUtf8 bs = I# ( countUtf8Bytes# bs) == BS.length bs
+isValidUtf8 bs = countUtf8BytesSlow bs == BS.length bs
 #endif
 
 {-
@@ -420,8 +425,8 @@ countUtf8Bytes# bs = checkUtf8 0# 0#
         | isTrue# (i <# length_bs)
         = let
             !( I# l) =
-              -- safe because we just checked the length:
-              utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) - 1
+                -- safe because we just checked the length:
+                utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) - 1
           in case s of
             0#
                 -- Use unsigned underflow to only test once:
@@ -448,6 +453,51 @@ countUtf8Bytes# bs = checkUtf8 0# 0#
         -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
 
     isFollower w = w .&. 0xC0 == 0x80
+
+countUtf8BytesSlow :: BS.ByteString -> Int
+countUtf8BytesSlow bs
+    | BS.null bs = 0
+    | otherwise = loop 0
+  where
+    loop :: Int -> Int
+    loop !i = if
+        | isAscii' w
+        , (i + 1) <= BS.length bs
+        -> loop (i + 1)
+        | isLeader1 w
+        , (i + 2) <= BS.length bs -- Enough space for followers.
+        , isFollower (BS.index bs (i + 1))
+        -> loop (i + 2)
+        | isLeader2 w
+        , (i + 3) <= BS.length bs -- Enough space for followers.
+        , isFollower (BS.index bs (i + 1))
+        , isFollower (BS.index bs (i + 2))
+        -> loop (i + 3)
+        | isLeader3 w
+        , (i + 4) <= BS.length bs -- Enough space for followers.
+        , isFollower (BS.index bs (i + 1))
+        , isFollower (BS.index bs (i + 2))
+        , isFollower (BS.index bs (i + 3))
+        -> loop (i + 4)
+        | otherwise  -- Successfully reached the end, hit an invalid byte or didn't have enough room for followers.
+        -> i
+      where
+        w = BS.index bs i
+
+    isAscii' :: Word8 -> Bool
+    isAscii' w = w <= 0x7F
+
+    isLeader1 :: Word8 -> Bool
+    isLeader1 w = 0xC2 <= w  &&  w <= 0xDF -- Skip illegal overlong forms.
+
+    isLeader2 :: Word8 -> Bool
+    isLeader2 w = 0xE0 <= w  &&  w <= 0xEF
+
+    isLeader3 :: Word8 -> Bool
+    isLeader3 w = 0xF0 <= w  &&  w <= 0xF4 -- UTF-8 is artifically limited to \x10FFFF.
+
+    isFollower :: Word8 -> Bool
+    isFollower w = 0x80 <= w  &&  w <= 0xBF
 
 utf8LengthByLeader :: GHC.Word8 -> Int
 {-^ @utf8LengthByLeader w@ is
@@ -511,24 +561,24 @@ unChar2# :: Char -> (# Word8, Word8 #)
 unChar2# c = (# w0, w1 #)
   where
     i = ord c
-    !w0 = 0xC0 .|. fromIntegral (shift i (-6))
+    !w0 = 0xC0 .|. fromIntegral (unsafeShiftR i 6)
     !w1 = markTail $ fromIntegral i
 
 unChar3# :: Char -> (# Word8, Word8, Word8 #)
 unChar3# c = (# w0, w1, w2 #)
   where
     i = ord c
-    !w0 = 0xE0 .|. fromIntegral (shift i (-12))
-    !w1 = markTail $ fromIntegral $ shift i (-6)
+    !w0 = 0xE0 .|. fromIntegral (unsafeShiftR i 12)
+    !w1 = markTail $ fromIntegral $ unsafeShiftR i 6
     !w2 = markTail $ fromIntegral i
 
 unChar4# :: Char -> (# Word8, Word8, Word8, Word8 #)
 unChar4# c = (# w0, w1, w2, w3 #)
   where
     i = ord c
-    !w0 = 0xF0 .|. fromIntegral (shift i (-18))
-    !w1 = markTail $ fromIntegral $ shift i (-12)
-    !w2 = markTail $ fromIntegral $ shift i (-6)
+    !w0 = 0xF0 .|. fromIntegral (unsafeShiftR i 18)
+    !w1 = markTail $ fromIntegral $ unsafeShiftR i 12
+    !w2 = markTail $ fromIntegral $ unsafeShiftR i 6
     !w3 = markTail $ fromIntegral i
 
 markTail :: Word8 -> Word8
@@ -546,30 +596,31 @@ char1 w0 = chr (fromIntegral w0)
 char2 :: Word8 -> Word8 -> Char
 char2 w0 w1 = chr $ w0' .|. w1'
   where
-    !w0' = shift (fromIntegral (0x3F .&. w0)) 6
+    !w0' = unsafeShiftL (fromIntegral (0x3F .&. w0)) 6
     !w1' = fromIntegral (unmarkTail w1)
 
 char3 :: Word8 -> Word8 -> Word8 -> Char
 char3 w0 w1 w2 = chr $ w0' .|. w1' .|. w2'
   where
-    !w0' = shift (fromIntegral (0xF .&. w0)) 12
-    !w1' = shift (fromIntegral (unmarkTail w1)) 6
+    !w0' = unsafeShiftL (fromIntegral (0xF .&. w0)) 12
+    !w1' = unsafeShiftL (fromIntegral (unmarkTail w1)) 6
     !w2' = fromIntegral (unmarkTail w2)
 
 char4 :: Word8 -> Word8 -> Word8 -> Word8 -> Char
 char4 w0 w1 w2 w3 =
     chr $ (w0' .|. w1') .|. (w2' .|. w3')
   where
-    !w0' = shift (fromIntegral (0xF .&. w0)) 18
-    !w1' = shift (fromIntegral (unmarkTail w1)) 12
-    !w2' = shift (fromIntegral (unmarkTail w2)) 6
+    !w0' = unsafeShiftL (fromIntegral (0xF .&. w0)) 18
+    !w1' = unsafeShiftL (fromIntegral (unmarkTail w1)) 12
+    !w2' = unsafeShiftL (fromIntegral (unmarkTail w2)) 6
     !w3' = fromIntegral (unmarkTail w3)
 
 
+{-
 intToWord :: Int -> GHC.Word
 intToWord = fromIntegral
 {-# INLINE intToWord #-}
-{-
+
 wordToChar :: GHC.Word -> Char
 wordToChar x = chr (fromIntegral x)
 {-# INLINE wordToChar #-}
@@ -592,3 +643,13 @@ word8ToInt = fromIntegral
 --     case IBS.toForeignPtr bs of
 --         (fp, off, len) -> let !fp' = plusForeignPtr fp off in (fp', len)
 
+
+{- Note: Security Model
+https://unicode.org/reports/tr36/
+"The byte sequence E3 80 22 is malformed because 0x22 is not a valid second trailing byte following the leading byte 0xE3. Some conversion code may report the three-byte sequence E3 80 22 as one illegal sequence and continue converting the rest, while other conversion code may report only the two-byte sequence E3 80 as an illegal sequence and continue converting with the 0x22 byte which is a syntax character in HTML and XML (U+0022 double quote). Implementations that report the 0x22 byte as part of the illegal sequence can be exploited for cross-site-scripting (XSS) attacks.
+Therefore, an illegal byte sequence must not include bytes that encode valid characters or are leading bytes for valid characters.
+
+In a reported illegal byte sequence, do not include any non-initial byte that encodes a valid character or is a leading byte for a valid sequence."
+
+In other words, when parsing, read until the next leader regardless of how soon it appears.
+-}
