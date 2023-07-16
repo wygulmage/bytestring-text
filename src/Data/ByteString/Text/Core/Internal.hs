@@ -412,7 +412,7 @@ spanUtf8 bs = (txt, bs')
 A leader without enough followers: The leader and its followers are one invalid byte sequence. (This can be up to 3 bytes.)
 A follower without a leader: The lone follower is one invalid byte sequence (exactly 1 byte).
 -}
-
+{-
 countUtf8Bytes# :: BS.ByteString -> Int#
 {-^ O(n)
 @countUtf8Bytes# bs# is the number of contiguous UTF-8 encoding bytes from the start of the 'ByteString' (or, equivalently, the index of the first non-UTF-8-encoding byte).
@@ -453,51 +453,54 @@ countUtf8Bytes# bs = checkUtf8 0# 0#
         -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
 
     isFollower w = w .&. 0xC0 == 0x80
+-}
 
 countUtf8BytesSlow :: BS.ByteString -> Int
-countUtf8BytesSlow bs
-    | BS.null bs = 0
-    | otherwise = loop 0
+countUtf8BytesSlow bs = loop 0
   where
     loop :: Int -> Int
-    loop !i = if
-        | isAscii' w
-        , (i + 1) <= BS.length bs
-        -> loop (i + 1)
-        | isLeader1 w
-        , (i + 2) <= BS.length bs -- Enough space for followers.
-        , isFollower (BS.index bs (i + 1))
-        -> loop (i + 2)
-        | isLeader2 w
-        , (i + 3) <= BS.length bs -- Enough space for followers.
-        , isFollower (BS.index bs (i + 1))
-        , isFollower (BS.index bs (i + 2))
-        -> loop (i + 3)
-        | isLeader3 w
-        , (i + 4) <= BS.length bs -- Enough space for followers.
-        , isFollower (BS.index bs (i + 1))
-        , isFollower (BS.index bs (i + 2))
-        , isFollower (BS.index bs (i + 3))
-        -> loop (i + 4)
-        | otherwise  -- Successfully reached the end, hit an invalid byte or didn't have enough room for followers.
-        -> i
+    loop !i
+        | i >= BS.length bs -- done; success
+        = i
+
+        | w <= 0x7F -- ASCII
+        = loop (i + 1)
+
+        | leads1 w
+        , (i + 1) < BS.length bs  -- enough space for followers
+        , isFollower w1
+        , c <- char2 w w1
+        , '\x80' <= c
+        = loop (i + 2)
+
+        | leads2 w
+        , (i + 2) < BS.length bs  -- enough space for followers
+        , isFollower w1 && isFollower w2
+        , c <- char3 w w1 w2
+        , '\x800' <= c
+        = loop (i + 3)
+
+        | leads3 w
+        , (i + 3) < BS.length bs  -- Enough space for followers.
+        , isFollower w1 && isFollower w2 && isFollower w3
+        , c <- char4 w w1 w2 w3
+        , '\x10000' <= c  &&  c <= '\x10FFFF' -- Max code point is artificially limited to max UTF-16.
+        = loop (i + 4)
+
+        | otherwise  -- Hit an invalid byte or didn't have enough room for followers.
+        = i
+
       where
         w = BS.index bs i
+        w1 = BS.index bs (i + 1)
+        w2 = BS.index bs (i + 2)
+        w3 = BS.index bs (i + 3)
 
-    isAscii' :: Word8 -> Bool
-    isAscii' w = w <= 0x7F
+        isFollower w = 0xC0 .&. w  ==  0x80
+        leads1 w = 0xE0 .&. w  ==  0xC0
+        leads2 w = 0xF0 .&. w  ==  0xE0
+        leads3 w = 0xF8 .&. w  ==  0xF0
 
-    isLeader1 :: Word8 -> Bool
-    isLeader1 w = 0xC2 <= w  &&  w <= 0xDF -- Skip illegal overlong forms.
-
-    isLeader2 :: Word8 -> Bool
-    isLeader2 w = 0xE0 <= w  &&  w <= 0xEF
-
-    isLeader3 :: Word8 -> Bool
-    isLeader3 w = 0xF0 <= w  &&  w <= 0xF4 -- UTF-8 is artifically limited to \x10FFFF.
-
-    isFollower :: Word8 -> Bool
-    isFollower w = 0x80 <= w  &&  w <= 0xBF
 
 utf8LengthByLeader :: GHC.Word8 -> Int
 {-^ @utf8LengthByLeader w@ is
