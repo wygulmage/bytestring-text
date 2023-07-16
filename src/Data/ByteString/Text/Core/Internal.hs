@@ -408,53 +408,6 @@ spanUtf8 bs = (txt, bs')
 {-# INLINE spanUtf8 #-}
 -}
 
-{- Note: What to consider an invalid code point or byte sequence
-A leader without enough followers: The leader and its followers are one invalid byte sequence. (This can be up to 3 bytes.)
-A follower without a leader: The lone follower is one invalid byte sequence (exactly 1 byte).
--}
-{-
-countUtf8Bytes# :: BS.ByteString -> Int#
-{-^ O(n)
-@countUtf8Bytes# bs# is the number of contiguous UTF-8 encoding bytes from the start of the 'ByteString' (or, equivalently, the index of the first non-UTF-8-encoding byte).
--}
-countUtf8Bytes# bs = checkUtf8 0# 0#
-  where
-    !( I# length_bs ) = BS.length bs
-    checkUtf8 :: Int# -> Int# -> Int#
-    checkUtf8 !s !i
-        | isTrue# (i <# length_bs)
-        = let
-            !( I# l) =
-                -- safe because we just checked the length:
-                utf8LengthByLeader (BS.unsafeIndex bs ( I# i )) - 1
-          in case s of
-            0#
-                -- Use unsigned underflow to only test once:
-                | isTrue# ( int2Word# l `leWord#` 3## ) ->
-                    checkUtf8 l ( i +# 1# )
-                | otherwise ->
-                    i
-            _
-                | otherwise ->
-                    case l of
-                      -1# -> checkUtf8 ( s -# 1# ) ( i +# 1# )
-                      _   -> i
-        | otherwise
-        = case s of
-            0# -> i
-        -- There's an incomplete code point at the end of the ByteString....
-            _ -> backtrack ( i -# 1# )
-
-    backtrack :: Int# -> Int#
-    backtrack j
-        -- safe because if it wasn't there we'd have failed going forward:
-        | isFollower (BS.unsafeIndex bs ( I# j )) = backtrack ( j -# 1# )
-        | otherwise                               = j
-        -- could instead use state information from the previous loop as a hint for how far to backtrack, but this is simpler.
-
-    isFollower w = w .&. 0xC0 == 0x80
--}
-
 countUtf8BytesSlow :: BS.ByteString -> Int
 countUtf8BytesSlow bs = loop 0
   where
@@ -467,23 +420,21 @@ countUtf8BytesSlow bs = loop 0
         = loop (i + 1)
 
         | leads1 w
-        , (i + 1) < BS.length bs  -- enough space for followers
+        , (i + 1) < BS.length bs  -- room for followers
         , isFollower w1
-        , c <- char2 w w1
-        , '\x80' <= c
+        , '\x80' <= char2 w w1  -- no 'overlong' encodings
         = loop (i + 2)
 
         | leads2 w
-        , (i + 2) < BS.length bs  -- enough space for followers
+        , (i + 2) < BS.length bs  -- room for followers
         , isFollower w1 && isFollower w2
-        , c <- char3 w w1 w2
-        , '\x800' <= c
+        , '\x800' <= char3 w w1 w2  -- no 'overlong' encodings
         = loop (i + 3)
 
         | leads3 w
-        , (i + 3) < BS.length bs  -- Enough space for followers.
+        , (i + 3) < BS.length bs  -- room for followers.
         , isFollower w1 && isFollower w2 && isFollower w3
-        , c <- char4 w w1 w2 w3
+        , c <- char4 w w1 w2 w3  -- no 'overlong' encodings
         , '\x10000' <= c  &&  c <= '\x10FFFF' -- Max code point is artificially limited to max UTF-16.
         = loop (i + 4)
 
@@ -525,8 +476,8 @@ utf8Length# :: GHC.Char# -> GHC.Int#
 utf8Length# c =
        1#
     +# GHC.geChar# c (GHC.chr# 0x80#)
-    +# (GHC.geChar# c (GHC.chr# 0x800#)
-    +# GHC.geChar# c (GHC.chr# 0x10000#))
+    +# GHC.geChar# c (GHC.chr# 0x800#)
+    +# GHC.geChar# c (GHC.chr# 0x10000#)
 {-# INLINE utf8Length# #-}
 
 
@@ -541,8 +492,7 @@ charBytes c@( C# c# ) = case utf8Length# c# of
     1# -> CharBytes1 (unChar1 c)
     2# -> case unChar2# c of (# w0, w1 #) -> CharBytes2 w0 w1
     3# -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
-    4# -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
-    _ -> errorWithoutStackTrace "charBytes: bad Char"
+    _  -> case unChar4# c of (# w0, w1, w2, w3 #) -> CharBytes4 w0 w1 w2 w3
 {-# INLINABLE charBytes #-}
 
 foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b

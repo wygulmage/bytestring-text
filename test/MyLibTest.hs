@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Prelude hiding
-    (concatMap, drop, dropWhile, elem, head, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, take, takeWhile)
+    (concatMap, drop, dropWhile, elem, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
 import Data.ByteString.Text.Core
 import Data.ByteString.Text.Core.Internal
 import Test.Tasty
@@ -31,10 +31,8 @@ main = defaultMain props
 
 
 props = testGroup "All Properties" $
-    testProperty "toList . fromString gives the same result as Data.Text"
-        prop_text_toList_fromString :
-    testProperty "toList . decodeUtf8 gives the same result as Data.Text"
-        prop_text_toList_decodeUtf8 :
+    props_List :
+    props_other_text :
     testProperty "pack . unpack = id" prop_pack_unpack :
     testProperty "concatMap singleton = id" prop_concatMap_singleton :
     props_take_drop :
@@ -46,6 +44,20 @@ props = testGroup "All Properties" $
     props_is_fixOf :
     -- testProperty "map id = id"
     --     prop_map_id :
+    []
+
+
+------ Make sure that the API is equivalent to the Data.Text API.
+
+props_other_text = testGroup "Data.Text" $
+    testProperty "toList . fromString"
+        prop_text_toList_fromString :
+    testProperty "toList . decodeUtf8"
+        prop_text_toList_decodeUtf8 :
+    testProperty "takeEnd" prop_text_takeEnd :
+    testProperty "dropEnd" prop_text_dropEnd :
+    testProperty "isSuffixOf" prop_text_isSuffixOf :
+    testProperty "isInfixOf" prop_text_isInfixOf :
     []
 
 prop_text_toList_fromString str = toList res1 == toList res2
@@ -63,9 +75,62 @@ prop_text_toList_decodeUtf8 (BS bs) =
     res2 :: Other.Text
     res2 = Other.decodeUtf8 bs
 
+prop_text_takeEnd n str =
+    toList (takeEnd n (fromList str)) == toList (Other.takeEnd n (fromList str))
+
+prop_text_dropEnd n str =
+    toList (dropEnd n (fromList str)) == toList (Other.dropEnd n (fromList str))
+
+prop_text_isSuffixOf pre str =
+    isSuffixOf (fromList pre) (fromList str)
+ == Other.isSuffixOf (fromList pre) (fromList str)
+
+prop_text_isInfixOf pre str =
+    isInfixOf (fromList pre) (fromList str)
+ == Other.isInfixOf (fromList pre) (fromList str)
+
+
+------ Make sure that the API shared with Data.List is equivalent.
+
+props_List = testGroup "Data.List" $
+    testProperty "head" prop_List_head :
+    testProperty "last" prop_List_last :
+    testProperty "tail" prop_List_tail :
+    testProperty "init" prop_List_init :
+    testProperty "take" prop_List_take :
+    testProperty "drop" prop_List_drop :
+    testProperty "isPrefixOf" prop_List_isPrefixOf :
+    testProperty "stripPrefix" prop_List_stripPrefix :
+    []
+
+prop_List_head str =
+    List.null str || List.head str == head (fromList str)
+
+prop_List_last str =
+    List.null str || List.last str == last (fromList str)
+
+prop_List_tail str =
+    List.null str || List.tail str == toList (tail (fromList str))
+
+prop_List_init str =
+    List.null str || List.init str == toList (init (fromList str))
+
+prop_List_take n str = List.take n str == toList (take n (fromList str))
+
+prop_List_drop n str = List.drop n str == toList (drop n (fromList str))
+
+prop_List_isPrefixOf pre str =
+    List.isPrefixOf pre str == isPrefixOf (fromList pre) (fromList str)
+
+prop_List_stripPrefix pre str =
+    List.stripPrefix pre str
+ == fmap toList (stripPrefix (fromList pre) (fromList str))
+
+
 prop_pack_unpack cs = cs == pack (unpack cs)
 
 prop_concatMap_singleton cs = concatMap singleton cs == cs
+
 
 props_take_drop = testGroup "drop, dropEnd, take, takeEnd" $
     testProperty "drop 0 = id"
