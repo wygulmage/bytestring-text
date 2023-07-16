@@ -47,6 +47,52 @@ props = testGroup "All Properties" $
     []
 
 
+
+------ Make sure that the API shared with Data.List is equivalent.
+
+props_List = testGroup "Data.List" $
+    testProperty "head" prop_List_head :
+    testProperty "last" prop_List_last :
+    testProperty "tail" prop_List_tail :
+    testProperty "init" prop_List_init :
+    testProperty "take" prop_List_take :
+    testProperty "drop" prop_List_drop :
+    testProperty "isPrefixOf" prop_List_isPrefixOf :
+    testProperty "isSuffixOf" prop_List_isSuffixOf :
+    testProperty "isInfixOf" prop_List_isInfixOf :
+    testProperty "stripPrefix" prop_List_stripPrefix :
+    []
+
+prop_List_head str =
+    List.null str || List.head str == head (fromList str)
+
+prop_List_last str =
+    List.null str || List.last str == last (fromList str)
+
+prop_List_tail str =
+    List.null str || List.tail str == toList (tail (fromList str))
+
+prop_List_init str =
+    List.null str || List.init str == toList (init (fromList str))
+
+prop_List_take n str = List.take n str == toList (take n (fromList str))
+
+prop_List_drop n str = List.drop n str == toList (drop n (fromList str))
+
+prop_List_isPrefixOf pre str =
+    List.isPrefixOf pre str == isPrefixOf (fromList pre) (fromList str)
+
+prop_List_isSuffixOf pre str =
+    List.isSuffixOf pre str == isSuffixOf (fromList pre) (fromList str)
+
+prop_List_isInfixOf pre str =
+    List.isInfixOf pre str == isInfixOf (fromList pre) (fromList str)
+
+prop_List_stripPrefix pre str =
+    List.stripPrefix pre str
+ == fmap toList (stripPrefix (fromList pre) (fromList str))
+
+
 ------ Make sure that the API is equivalent to the Data.Text API.
 
 props_other_text = testGroup "Data.Text" $
@@ -56,8 +102,6 @@ props_other_text = testGroup "Data.Text" $
         prop_text_toList_decodeUtf8 :
     testProperty "takeEnd" prop_text_takeEnd :
     testProperty "dropEnd" prop_text_dropEnd :
-    testProperty "isSuffixOf" prop_text_isSuffixOf :
-    testProperty "isInfixOf" prop_text_isInfixOf :
     []
 
 prop_text_toList_fromString str = toList res1 == toList res2
@@ -81,51 +125,8 @@ prop_text_takeEnd n str =
 prop_text_dropEnd n str =
     toList (dropEnd n (fromList str)) == toList (Other.dropEnd n (fromList str))
 
-prop_text_isSuffixOf pre str =
-    isSuffixOf (fromList pre) (fromList str)
- == Other.isSuffixOf (fromList pre) (fromList str)
 
-prop_text_isInfixOf pre str =
-    isInfixOf (fromList pre) (fromList str)
- == Other.isInfixOf (fromList pre) (fromList str)
-
-
------- Make sure that the API shared with Data.List is equivalent.
-
-props_List = testGroup "Data.List" $
-    testProperty "head" prop_List_head :
-    testProperty "last" prop_List_last :
-    testProperty "tail" prop_List_tail :
-    testProperty "init" prop_List_init :
-    testProperty "take" prop_List_take :
-    testProperty "drop" prop_List_drop :
-    testProperty "isPrefixOf" prop_List_isPrefixOf :
-    testProperty "stripPrefix" prop_List_stripPrefix :
-    []
-
-prop_List_head str =
-    List.null str || List.head str == head (fromList str)
-
-prop_List_last str =
-    List.null str || List.last str == last (fromList str)
-
-prop_List_tail str =
-    List.null str || List.tail str == toList (tail (fromList str))
-
-prop_List_init str =
-    List.null str || List.init str == toList (init (fromList str))
-
-prop_List_take n str = List.take n str == toList (take n (fromList str))
-
-prop_List_drop n str = List.drop n str == toList (drop n (fromList str))
-
-prop_List_isPrefixOf pre str =
-    List.isPrefixOf pre str == isPrefixOf (fromList pre) (fromList str)
-
-prop_List_stripPrefix pre str =
-    List.stripPrefix pre str
- == fmap toList (stripPrefix (fromList pre) (fromList str))
-
+------ General Sanity Checks
 
 prop_pack_unpack cs = cs == pack (unpack cs)
 
