@@ -12,6 +12,7 @@ import qualified Data.List as List
 import qualified Data.ByteString as BS
 import qualified Data.Text as Other
 import qualified Data.Text.Encoding as Other
+import qualified Data.Text.Encoding.Error as Other
 
 instance Arbitrary Text where
    arbitrary = fmap fromList arbitrary
@@ -33,6 +34,8 @@ main = defaultMain props
 props = testGroup "All Properties" $
     props_List :
     props_other_text :
+    testProperty "decodeUtf8Lenient produces valid UTF-8"
+        prop_isValidUtf8_decodeUtf8Lenient :
     testProperty "pack . unpack = id" prop_pack_unpack :
     testProperty "concatMap singleton = id" prop_concatMap_singleton :
     props_take_drop :
@@ -100,6 +103,8 @@ props_other_text = testGroup "Data.Text" $
         prop_text_toList_fromString :
     testProperty "toList . decodeUtf8"
         prop_text_toList_decodeUtf8 :
+    -- testProperty "toList . decodeUtf8Lenient"
+    --     prop_text_toList_decodeUtf8Lenient :
     testProperty "takeEnd" prop_text_takeEnd :
     testProperty "dropEnd" prop_text_dropEnd :
     []
@@ -119,6 +124,15 @@ prop_text_toList_decodeUtf8 (BS bs) =
     res2 :: Other.Text
     res2 = Other.decodeUtf8 bs
 
+-- This one will fail, because the replacement schemes are slightly different.
+prop_text_toList_decodeUtf8Lenient (BS bs) =
+    toList res1 == toList res2
+  where
+    res1 :: Text
+    res1 = decodeUtf8Lenient bs
+    res2 :: Other.Text
+    res2 = Other.decodeUtf8With Other.lenientDecode bs
+
 prop_text_takeEnd n str =
     toList (takeEnd n (fromList str)) == toList (Other.takeEnd n (fromList str))
 
@@ -127,6 +141,9 @@ prop_text_dropEnd n str =
 
 
 ------ General Sanity Checks
+
+prop_isValidUtf8_decodeUtf8Lenient (BS bs) =
+    isValidUtf8 (encodeUtf8 (decodeUtf8Lenient bs))
 
 prop_pack_unpack cs = cs == pack (unpack cs)
 

@@ -15,7 +15,7 @@ singleton,
 empty,
 append,
 concat, concatMap,
-decodeUtf8,
+decodeUtf8, decodeUtf8Lenient,
 -- Consume:
 unpack,
 uncons, unsnoc,

@@ -18,7 +18,7 @@ Text (..),
 -- * Construct:
 pack,
 append, concat, empty,
-decodeUtf8,
+decodeUtf8, decodeUtf8Lenient,
 -- * Consume:
 unpack,
 foldr,
@@ -203,14 +203,14 @@ The first 'Char' of the 'Text' and the number of bytes needed to encode that 'Ch
 
 WARNING: @unsafeHeadLen# txt@ is unspecified if @null txt@ is 'True'.
 -}
-unsafeHeadLen# (UnsafeFromByteString bs) = (# c, l #)
+unsafeHeadLen# (UnsafeFromByteString bs) = (# chr' c, l #)
   where
     -- For now this is a thunk to make `uncons` lazier, but could force it or produce a Char# rather than a Char.
     c = case l of
-        1# -> char1 b0
-        2# -> char2 b0 b1
-        3# -> char3 b0 b1 b2
-        _ -> char4 b0 b1 b2 b3
+        1# -> char1' b0
+        2# -> char2' b0 b1
+        3# -> char3' b0 b1 b2
+        _ -> char4' b0 b1 b2 b3
     !(I# l) = utf8LengthByLeader b0
     !b0 = BS.unsafeHead bs
     b1 = BS.unsafeIndex bs 1
@@ -230,15 +230,15 @@ unsnoc# :: Text -> (# Text, Char #)
 WARNING: The behavior of @unsnoc# txt@ is unspecified if @txt@ is 'null'. (Assume it will silently corrupt all your data and launch the missiles or crash the program, whichever is worse.)
 -}
 unsnoc# (UnsafeFromByteString bs) =
-    (# bs', c #)
+    (# bs', chr' c #)
   where
     !bs' = UnsafeFromByteString (BS.unsafeTake length' bs)  -- forced even though it may not be used.
     !length' = end - diff
     !(diff, c)
-        | w0 <= 0x7F = (0, char1 w0)
-        | w1 >= 0xC0 = (1, char2 w1 w0)
-        | w2 >= 0xC0 = (2, char3 w2 w1 w0)
-        | otherwise  = (3, char4 w3 w2 w1 w0)
+        | w0 <= 0x7F = (0, char1' w0)
+        | w1 >= 0xC0 = (1, char2' w1 w0)
+        | w2 >= 0xC0 = (2, char3' w2 w1 w0)
+        | otherwise  = (3, char4' w3 w2 w1 w0)
     !end = BS.length bs - 1  -- index of the last byte of the ByteString
     !w0 = BS.unsafeIndex bs end -- BS.last bs
     w1 = BS.unsafeIndex bs (end - 1)
@@ -386,6 +386,13 @@ decodeUtf8 bs
         | otherwise = error "decodeUtf8: ByteString is not UTF-8"
     -- TODO: Use a proper unicodeError.
 
+decodeUtf8Lenient :: BS.ByteString -> Text
+{-^ Decode a 'ByteString' as UTF-8, replacing any invalid byte sequences with the Unicode replacement character @\'\\xFFFD\'@.
+
+This follows https://unicode.org/reports/tr36/, and therefore does not exactly match the behavior of 'Data.Text.Encoding.decodeUtf8Lenient'. (At least it should match tr36 replacement option 2. If it does not, please report it as a bug.)
+-}
+decodeUtf8Lenient = decodeUtf8With' replaceOnError
+
 isValidUtf8 :: BS.ByteString -> Bool
 #if MIN_VERSION_bytestring(0,11,5)
 -- The earlier version was buggy.
@@ -395,21 +402,63 @@ isValidUtf8 = BS.isValidUtf8
 isValidUtf8 bs = countUtf8BytesSlow bs == BS.length bs
 #endif
 
-{-
+decodeUtf8With' :: (BS.ByteString -> Builder) -> BS.ByteString -> Text
+decodeUtf8With' onError bs
+    | n == BS.length bs
+    = UnsafeFromByteString bs
+    | otherwise
+    = toTextWith (BS.length bs + 2) $
+           fromText (UnsafeFromByteString (BS.unsafeTake n bs))
+        <> onError (BS.unsafeDrop n bs)
+  where
+    n = countUtf8BytesSlow bs
+
+replaceOnError :: BS.ByteString -> Builder
+{-^ -}
+replaceOnError bs = charUtf8 '\xFFFD' <> loop 1 -- Start bad byte, which was just replaced.
+  where
+    loop !i
+        | i >= BS.length bs
+        = mempty
+        --  | isAscii' w || leads1 w || leads2 w || leads3 w
+        | utf8LengthByLeader w > 0 -- is leader, probably; spanUtf8 will do the real work.
+        , (txt, bs') <- spanUtf8 (BS.drop i bs)
+        = if null txt
+            then loop (i + 1) -- Don't produce 2 consecutive FFFDs.
+            else if BS.null bs'
+                    then fromText txt
+                    else fromText txt <> replaceOnError bs'
+        | otherwise
+        = loop (i + 1)
+
+      where
+        w = BS.index bs i
+        isAscii' w = w <= 0x7F
+        leads1 w = 0xE0 .&. w  ==  0xC0
+        leads2 w = 0xF0 .&. w  ==  0xE0
+        leads3 w = 0xF8 .&. w  ==  0xF0
+
+
+
 spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 {-^ O(n)
 @spanUtf8 bs@ splits @bs@ into a contiguous (possibly empty) prefix of UTF-8 text and the (possibly empty) non-UTF-8 remainder of @bs@.
 -}
 spanUtf8 bs = (txt, bs')
   where
-    i = I# ( countUtf8Bytes# bs )
+    i = countUtf8BytesSlow bs
     !txt = UnsafeFromByteString (BS.unsafeTake i bs)
     !bs' = BS.unsafeDrop i bs
+    -- i = I# ( countUtf8Bytes# bs )
+    -- !txt = UnsafeFromByteString (BS.unsafeTake i bs)
+    -- !bs' = BS.unsafeDrop i bs
 {-# INLINE spanUtf8 #-}
--}
 
 countUtf8BytesSlow :: BS.ByteString -> Int
-countUtf8BytesSlow bs = loop 0
+countUtf8BytesSlow = countUtf8BytesSlowFrom 0
+
+countUtf8BytesSlowFrom :: Int -> BS.ByteString -> Int
+countUtf8BytesSlowFrom i bs = loop i
   where
     loop :: Int -> Int
     loop !i
@@ -422,20 +471,20 @@ countUtf8BytesSlow bs = loop 0
         | leads1 w
         , (i + 1) < BS.length bs  -- room for followers
         , isFollower w1
-        , '\x80' <= char2 w w1  -- no 'overlong' encodings
+        , 0x80 <= char2' w w1  -- no 'overlong' encodings
         = loop (i + 2)
 
         | leads2 w
         , (i + 2) < BS.length bs  -- room for followers
         , isFollower w1 && isFollower w2
-        , '\x800' <= char3 w w1 w2  -- no 'overlong' encodings
+        , 0x800 <= char3' w w1 w2  -- no 'overlong' encodings
         = loop (i + 3)
 
         | leads3 w
         , (i + 3) < BS.length bs  -- room for followers.
         , isFollower w1 && isFollower w2 && isFollower w3
-        , c <- char4 w w1 w2 w3  -- no 'overlong' encodings
-        , '\x10000' <= c  &&  c <= '\x10FFFF' -- Max code point is artificially limited to max UTF-16.
+        , c <- char4' w w1 w2 w3  -- no 'overlong' encodings
+        , 0x10000 <= c  &&  c <= 0x10FFFF -- Max code point is artificially limited to max UTF-16.
         = loop (i + 4)
 
         | otherwise  -- Hit an invalid byte or didn't have enough room for followers.
@@ -542,41 +591,46 @@ unmarkTail :: Word8 -> Word8
 unmarkTail = (.&.) 0x3F
 {-# INLINE unmarkTail #-}
 
-char1 :: Word8 -> Char
-char1 w0 = chr (fromIntegral w0)
-{-# INLINE char1 #-}
+chr' :: Word -> Char
+chr' = chr . fromIntegral
+{-# INLINE chr' #-}
 
-char2 :: Word8 -> Word8 -> Char
-char2 w0 w1 = chr $ w0' .|. w1'
+char1' :: Word8 -> Word
+char1' = fromIntegral
+{-# INLINE char1' #-}
+
+char2' :: Word8 -> Word8 -> Word
+char2' w0 w1 = w0' .|. w1'
   where
     !w0' = unsafeShiftL (fromIntegral (0x3F .&. w0)) 6
     !w1' = fromIntegral (unmarkTail w1)
 
-char3 :: Word8 -> Word8 -> Word8 -> Char
-char3 w0 w1 w2 = chr $ w0' .|. w1' .|. w2'
+char3' :: Word8 -> Word8 -> Word8 -> Word
+char3' w0 w1 w2 = w0' .|. w1' .|. w2'
   where
     !w0' = unsafeShiftL (fromIntegral (0xF .&. w0)) 12
     !w1' = unsafeShiftL (fromIntegral (unmarkTail w1)) 6
     !w2' = fromIntegral (unmarkTail w2)
 
-char4 :: Word8 -> Word8 -> Word8 -> Word8 -> Char
-char4 w0 w1 w2 w3 =
-    chr $ (w0' .|. w1') .|. (w2' .|. w3')
+char4' :: Word8 -> Word8 -> Word8 -> Word8 -> Word
+char4' w0 w1 w2 w3 =
+    (w0' .|. w1') .|. (w2' .|. w3')
   where
     !w0' = unsafeShiftL (fromIntegral (0xF .&. w0)) 18
     !w1' = unsafeShiftL (fromIntegral (unmarkTail w1)) 12
     !w2' = unsafeShiftL (fromIntegral (unmarkTail w2)) 6
     !w3' = fromIntegral (unmarkTail w3)
 
+-- wordToChar :: GHC.Word -> Char
+-- wordToChar x = chr (fromIntegral x)
+-- {-# INLINE wordToChar #-}
+
+
 
 {-
 intToWord :: Int -> GHC.Word
 intToWord = fromIntegral
 {-# INLINE intToWord #-}
-
-wordToChar :: GHC.Word -> Char
-wordToChar x = chr (fromIntegral x)
-{-# INLINE wordToChar #-}
 
 charToWord :: Char -> GHC.Word
 charToWord x = fromIntegral (ord x)
@@ -604,5 +658,22 @@ Therefore, an illegal byte sequence must not include bytes that encode valid cha
 
 In a reported illegal byte sequence, do not include any non-initial byte that encodes a valid character or is a leading byte for a valid sequence."
 
-In other words, when parsing, read until the next leader regardless of how soon it appears.
+In other words, when recovering from an error, read until the next leader regardless of how soon or late it appears.
+
+5.22 Best Practice for U+FFFD Substitution
+"When converting text from one character encoding to another, a conversion algorithm may encounter unconvertible code units. . . .
+When a conversion algorithm encounters such unconvertible data, the usual practice is either to throw an exception or to use a defined substitution character to represent the unconvertible data. In the case of conversion to one of the encoding forms of the Unicode Standard, the substitution character is defined as U+FFFD replacement character.
+However, there are different possible ways to use U+FFFD. This section describes the best practice.
+For conversion between different encoding forms of the Unicode Standard, Section 3.9, Unicode Encoding Forms defines best practice for the use of U+FFFD. The basic formulation is as follows:
+
+Whenever an unconvertible offset is reached during conversion of a code
+unit sequence:
+
+1. The maximal subpart at that offset should be replaced by a single
+U+FFFD.
+
+2. The conversion should proceed at the offset immediately after the maximal subpart.
+
+In that formulation, the term “maximal subpart” refers to a maximal subpart of an illformed subsequence, which is precisely defined in Section 3.9, Unicode Encoding Forms for Unicode encoding forms. Essentially, a conversion algorithm gathers up the longest sequence of code units that could be the start of a valid, convertible sequence, but which is not actually convertible. For example, consider the first three bytes of a four-byte UTF-8
+sequence, followed by a byte which cannot be a valid continuation byte: <F4 80 80 41>. In that case <F4 80 80> would be the maximal subpart that would be replaced by a single U+FFFD. If there is not any start of a valid, convertible sequence in the unconvertible data at a particular offset, then the maximal subpart would consist of a single code unit."
 -}
