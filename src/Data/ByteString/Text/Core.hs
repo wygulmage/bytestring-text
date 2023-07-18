@@ -32,6 +32,7 @@ isPrefixOf, isSuffixOf, isInfixOf,
 -- Transform:
 reverse,
 stripPrefix, stripSuffix,
+filter,
 -- Low-level:
 copy,
 -- unpackCString#,
@@ -322,6 +323,24 @@ singleton !c = UnsafeFromByteString $ case charBytes c of
 concatMap :: (Char -> Text) -> Text -> Text
 concatMap f = concat . List.map f . unpack
 {-# INLINE [~0] concatMap #-}
+
+
+filter :: (Char -> Bool) -> Text -> Text
+{-^ O(n) Remove all 'Char's that do not match the predicate. -}
+filter p txt = case span p txt of
+    (txt1, txt2)
+        | null txt2
+        -> txt1  -- Nothing was filtered out.
+--        | null txt1 -> filter p (tail txt2)
+        | otherwise
+        -> toTextWith
+            (min (lengthWord8 txt - 1) defaultChunkSize)
+            (fromText txt1 <> go txt2)
+  where
+    go txt2 = case span p txt2 of
+        (txt1', txt2')
+            | null txt2' -> fromText txt1'
+            | otherwise -> fromText txt1' <> go (tail txt2')
 
 copy :: Text -> Text
 copy = coerce BS.copy

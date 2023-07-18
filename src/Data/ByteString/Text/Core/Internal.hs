@@ -36,6 +36,7 @@ dropWord8,
 Builder (..),
 toText, toTextWith,
 charUtf8, stringUtf8, fromText,
+defaultChunkSize, smallChunkSize,
 -- * Helpers:
 isValidUtf8,
 CharBytes(..), charBytes,
@@ -414,29 +415,41 @@ decodeUtf8With' onError bs
     n = countUtf8BytesSlow bs
 
 replaceOnError :: BS.ByteString -> Builder
-{-^ -}
-replaceOnError bs = charUtf8 '\xFFFD' <> loop 1 -- Start bad byte, which was just replaced.
+{-^ Replace all maximal non-UTF-8 subsequences of the argument with @\'\\xFFFD\'@.
+-}
+replaceOnError bs = charUtf8 '\xFFFD' <> replaceOnError_loop (BS.tail bs)
   where
-    loop !i
-        | i >= BS.length bs
-        = mempty
-        --  | isAscii' w || leads1 w || leads2 w || leads3 w
-        | utf8LengthByLeader w > 0 -- is leader, probably; spanUtf8 will do the real work.
-        , (txt, bs') <- spanUtf8 (BS.drop i bs)
-        = if null txt
-            then loop (i + 1) -- Don't produce 2 consecutive FFFDs.
-            else if BS.null bs'
-                    then fromText txt
-                    else fromText txt <> replaceOnError bs'
-        | otherwise
-        = loop (i + 1)
+    replaceOnError_loop bs' =
+        case spanUtf8 bs' of
+            (txt, bs'')
+                | BS.null bs''
+                -> fromText txt
+                | null txt
+                -> replaceOnError_loop (BS.tail bs'') -- Do not produce another FFFD.
+                | otherwise
+                -> fromText txt <> replaceOnError bs'' -- Do produce another FFFD.
+-- replaceOnError bs = charUtf8 '\xFFFD' <> loop 1 -- Start bad byte, which was just replaced.
+--   where
+--     loop !i
+--         | i >= BS.length bs
+--         = mempty
+--         --  | isAscii' w || leads1 w || leads2 w || leads3 w
+--         | utf8LengthByLeader w > 0 -- is leader, probably; spanUtf8 will do the real work of checking.
+--         , (txt, bs') <- spanUtf8 (BS.drop i bs)
+--         = if null txt
+--             then loop (i + 1) -- Don't produce 2 consecutive FFFDs.
+--             else if BS.null bs'
+--                     then fromText txt
+--                     else fromText txt <> replaceOnError bs'
+--         | otherwise
+--         = loop (i + 1)
 
-      where
-        w = BS.index bs i
-        isAscii' w = w <= 0x7F
-        leads1 w = 0xE0 .&. w  ==  0xC0
-        leads2 w = 0xF0 .&. w  ==  0xE0
-        leads3 w = 0xF8 .&. w  ==  0xF0
+--       where
+--         w = BS.index bs i
+--         isAscii' w = w <= 0x7F
+--         leads1 w = 0xE0 .&. w  ==  0xC0
+--         leads2 w = 0xF0 .&. w  ==  0xE0
+--         leads3 w = 0xF8 .&. w  ==  0xF0
 
 
 

@@ -1,12 +1,13 @@
 module Main (main) where
 
 import Prelude hiding
-    (concatMap, drop, dropWhile, elem, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
+    (concatMap, drop, dropWhile, elem, filter, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
 import Data.ByteString.Text.Core
 import Data.ByteString.Text.Core.Internal
 import Test.Tasty
 import Test.Tasty.QuickCheck
 import Test.QuickCheck (Arbitrary (..))
+import Test.QuickCheck.Function (apply)
 import GHC.Exts (fromString, fromList, toList)
 import qualified Data.List as List
 import qualified Data.ByteString as BS
@@ -59,12 +60,17 @@ props_List = testGroup "Data.List" $
     testProperty "tail" prop_List_tail :
     testProperty "init" prop_List_init :
     testProperty "take" prop_List_take :
+    testProperty "takeWhile" prop_List_takeWhile :
     testProperty "drop" prop_List_drop :
+    testProperty "dropWhile" prop_List_dropWhile :
+    testProperty "filter" prop_List_filter :
     testProperty "isPrefixOf" prop_List_isPrefixOf :
     testProperty "isSuffixOf" prop_List_isSuffixOf :
     testProperty "isInfixOf" prop_List_isInfixOf :
     testProperty "stripPrefix" prop_List_stripPrefix :
     []
+
+evenChar c = fromEnum c `rem` 2 == 0
 
 prop_List_head str =
     List.null str || List.head str == head (fromList str)
@@ -80,7 +86,16 @@ prop_List_init str =
 
 prop_List_take n str = List.take n str == toList (take n (fromList str))
 
+prop_List_takeWhile p str =
+    List.takeWhile (apply p) str == toList (takeWhile (apply p) (fromList str))
+
 prop_List_drop n str = List.drop n str == toList (drop n (fromList str))
+
+prop_List_dropWhile p str =
+    List.dropWhile (apply p) str == toList (dropWhile (apply p) (fromList str))
+
+prop_List_filter str =
+    List.filter evenChar str == toList (filter evenChar (fromList str))
 
 prop_List_isPrefixOf pre str =
     List.isPrefixOf pre str == isPrefixOf (fromList pre) (fromList str)
@@ -106,7 +121,9 @@ props_other_text = testGroup "Data.Text" $
     -- testProperty "toList . decodeUtf8Lenient"
     --     prop_text_toList_decodeUtf8Lenient :
     testProperty "takeEnd" prop_text_takeEnd :
+    testProperty "takeWhileEnd" prop_text_takeWhileEnd :
     testProperty "dropEnd" prop_text_dropEnd :
+    testProperty "dropWhileEnd" prop_text_dropWhileEnd :
     []
 
 prop_text_toList_fromString str = toList res1 == toList res2
@@ -136,8 +153,16 @@ prop_text_toList_decodeUtf8Lenient (BS bs) =
 prop_text_takeEnd n str =
     toList (takeEnd n (fromList str)) == toList (Other.takeEnd n (fromList str))
 
+prop_text_takeWhileEnd p str =
+    toList (takeWhileEnd (apply p) (fromList str))
+ == toList (Other.takeWhileEnd (apply p) (fromList str))
+
 prop_text_dropEnd n str =
     toList (dropEnd n (fromList str)) == toList (Other.dropEnd n (fromList str))
+
+prop_text_dropWhileEnd p str =
+    toList (dropWhileEnd (apply p) (fromList str))
+ == toList (Other.dropWhileEnd (apply p) (fromList str))
 
 
 ------ General Sanity Checks
