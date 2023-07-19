@@ -13,6 +13,9 @@
 {- This is an internal module of bytestring-text, and is not subject to the usual package versioning policy for API changes. By using this API you can violate invariants that are assumed in the 'Data.ByteString.Text' API, and even violate memory safety! Have fun!
 -}
 
+{- Note: Much of the Data.Text API uses Char where it should use Text.
+-}
+
 module Data.ByteString.Text.Core.Internal (
 Text (..),
 -- * Construct:
@@ -25,7 +28,7 @@ foldr,
 uncons, unsnoc,
 -- * Summarize:
 null,
-measureOff,
+-- measureOff,
 lengthWord8,
 -- * Unsafe operations:
 unsafeHead, unsafeTail,
@@ -43,34 +46,30 @@ CharBytes(..), charBytes,
 foldrCharBytes,
 ) where
 
+import Data.ByteString.Text.Core.Internal.Prelude
+
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Builder.Extra as Builder
+
 import Control.DeepSeq (NFData)
-import GHC.Base hiding (empty, foldr)
+
 import qualified GHC.Exts as GHC
 import GHC.Exts
     ( IsString (..)
     , IsList (..)
+    , ( +# ), ( <=# )
     )
-import GHC.Num (Num (..))
-import GHC.Real (fromIntegral)
 import qualified GHC.Word as GHC
-import GHC.Word
+
 import Data.Bits
     ( (.&.), (.|.), complement, countLeadingZeros
-    , shift, unsafeShiftL, unsafeShiftR,
+    , unsafeShiftL, unsafeShiftR,
     )
-import Data.Char
--- import Data.Coerce (coerce) -- provided by GHC.Base
+import Data.Coerce (coerce)
 import Foreign.Storable (sizeOf)
-import Text.Read
-    ( Read (readPrec, readList, readListPrec)
-    , readListDefault, readListPrecDefault
-    )
-import Text.Show
 
 -- Doctests don't work in this module because it uses UnboxedTuples.
 
@@ -128,10 +127,8 @@ pack = toText . stringUtf8
 packN :: Int -> [Char] -> Text
 packN n cs = toTextWith n' (stringUtf8 cs)
   where
-    n4 = n * 4 -- maximum number of bytes in a packed string of n Char. Should this instead optimistically try n * 3?
-    !n'
-      | Builder.defaultChunkSize <= n4 = defaultChunkSize
-      | otherwise = n4
+    !n' = min defaultChunkSize (n * 4)
+    -- Maximum number of bytes in a packed string of n Char is n * 4. Should this instead optimistically try n * 3?
 {-# INLINE packN #-}
 
 unpack :: Text -> [Char]
@@ -149,7 +146,6 @@ foldr f z = loop
             Just (c, cs') -> c `f` loop cs'
 {-# INLINABLE [0] foldr #-}
 
--- uncons is needed for foldr.
 uncons :: Text -> Maybe (Char, Text)
 {-^ O(1) If the 'Text' is null, 'Nothing'; otherwise 'Just' the first 'Char' and the rest of the 'Text'.
 
@@ -162,7 +158,12 @@ uncons cs
     | otherwise = Just (case uncons# cs of (# c, cs' #) -> (c, cs'))
 {-# INLINE uncons #-}
 
--- null is needed for uncons.
+unsnoc :: Text -> Maybe (Text, Char)
+unsnoc cs
+    | null cs   = Nothing
+    | otherwise = Just (case unsnoc# cs of (# cs', c #) -> (cs', c))
+{-# INLINE unsnoc #-}
+
 null :: Text -> Bool
 {-^ O(1) Is the text empty?
 
@@ -194,36 +195,9 @@ WARNING: The behavior of @uncons# txt@ is unspecified if @txt@ is 'null'. (Assum
 uncons# cs =
     case unsafeHeadLen# cs of
         (# c, l #) ->
-          let !cs' = dropWord8 (I# l) cs
+          let !cs' = dropWord8 (GHC.I# l) cs
           in (# c, cs' #)
 {-# INLINE uncons# #-}
-
-unsafeHeadLen# :: Text -> (# Char, Int# #)
-{-^ O(1)
-The first 'Char' of the 'Text' and the number of bytes needed to encode that 'Char' in UTF-8.
-
-WARNING: @unsafeHeadLen# txt@ is unspecified if @null txt@ is 'True'.
--}
-unsafeHeadLen# (UnsafeFromByteString bs) = (# chr' c, l #)
-  where
-    -- For now this is a thunk to make `uncons` lazier, but could force it or produce a Char# rather than a Char.
-    c = case l of
-        1# -> char1' b0
-        2# -> char2' b0 b1
-        3# -> char3' b0 b1 b2
-        _ -> char4' b0 b1 b2 b3
-    !(I# l) = utf8LengthByLeader b0
-    !b0 = BS.unsafeHead bs
-    b1 = BS.unsafeIndex bs 1
-    b2 = BS.unsafeIndex bs 2
-    b3 = BS.unsafeIndex bs 3
-{-# INLINE unsafeHeadLen# #-}
-
-unsnoc :: Text -> Maybe (Text, Char)
-unsnoc cs
-    | null cs   = Nothing
-    | otherwise = Just (case unsnoc# cs of (# cs', c #) -> (cs', c))
-{-# INLINE unsnoc #-}
 
 unsnoc# :: Text -> (# Text, Char #)
 {-^ O(1) The last 'Char' and the rest of the 'Text'. See also: 'unsnoc'.
@@ -247,6 +221,27 @@ unsnoc# (UnsafeFromByteString bs) =
     w3 = BS.unsafeIndex bs (end - 3)
 {-# INLINABLE unsnoc# #-}
 
+unsafeHeadLen# :: Text -> (# Char, GHC.Int# #)
+{-^ O(1)
+The first 'Char' of the 'Text' and the number of bytes needed to encode that 'Char' in UTF-8.
+
+WARNING: @unsafeHeadLen# txt@ is unspecified if @null txt@ is 'True'.
+-}
+unsafeHeadLen# (UnsafeFromByteString bs) = (# chr' c, l #)
+  where
+    -- For now this is a thunk to make `uncons` lazier, but could force it or produce a Char# rather than a Char.
+    c = case l of
+        1# -> char1' b0
+        2# -> char2' b0 b1
+        3# -> char3' b0 b1 b2
+        _ -> char4' b0 b1 b2 b3
+    !(GHC.I# l) = utf8LengthByLeader b0
+    !b0 = BS.unsafeHead bs
+    b1 = BS.unsafeIndex bs 1
+    b2 = BS.unsafeIndex bs 2
+    b3 = BS.unsafeIndex bs 3
+{-# INLINE unsafeHeadLen# #-}
+
 
 unsafeTail :: Text -> Text
 {-^ O(1) Drop the first 'Char' from the 'Text'. See also: 'tail', 'uncons'.
@@ -260,6 +255,7 @@ unsafeTail (UnsafeFromByteString bs) = UnsafeFromByteString bs'
     bs' = BS.unsafeDrop (utf8LengthByLeader (BS.unsafeHead bs)) bs
 {-# INLINE unsafeTail #-}
 
+{-
 -- Honestly I'm not sure why measureOff is part of the primary Text API or even what it's supposed to do. This is my best guess from the Data.Text documentation.
 measureOff :: Int -> Text -> Int
 {-^ @measureOff n cs@
@@ -281,6 +277,7 @@ measureOff n (UnsafeFromByteString bs) = measureOff_loop 0 0
             (charCount + 1)
             (byteCount + utf8LengthByLeader (BS.unsafeIndex bs byteCount))
 -- TODO: Check if it's more efficient to loop over every byte and count only leaders.
+-}
 
 ------ Operations on the underlying 'ByteString': ------
 
@@ -550,7 +547,7 @@ data CharBytes
     | CharBytes4 !Word8 !Word8 !Word8 !Word8
 
 charBytes :: Char -> CharBytes
-charBytes c@( C# c# ) = case utf8Length# c# of
+charBytes c@( GHC.C# c# ) = case utf8Length# c# of
     1# -> CharBytes1 (unChar1 c)
     2# -> case unChar2# c of (# w0, w1 #) -> CharBytes2 w0 w1
     3# -> case unChar3# c of (# w0, w1, w2 #) -> CharBytes3 w0 w1 w2
@@ -558,7 +555,7 @@ charBytes c@( C# c# ) = case utf8Length# c# of
 {-# INLINABLE charBytes #-}
 
 foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b
-foldrCharBytes f z c@( C# c# ) = case utf8Length# c# of
+foldrCharBytes f z c@( GHC.C# c# ) = case utf8Length# c# of
     1# -> case unChar1 c of
         !w0 -> f w0 z
     2# -> case unChar2# c of

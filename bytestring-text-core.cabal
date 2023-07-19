@@ -19,9 +19,11 @@ extra-source-files:  CHANGELOG.md
 library
   exposed-modules:
     Data.ByteString.Text.Core
+    Data.ByteString.Text.Char
     Data.ByteString.Text.Core.Unsafe
     Data.ByteString.Text.Core.Internal
   other-modules:
+    Data.ByteString.Text.Core.Internal.Prelude
   other-extensions:    NoImplicitPrelude
   build-depends:
     base >=4.13.0.0 && < 4.19,

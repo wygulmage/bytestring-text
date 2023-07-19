@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Prelude hiding
-    (concatMap, drop, dropWhile, elem, filter, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
+    (concat, concatMap, drop, dropWhile, elem, filter, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
 import Data.ByteString.Text.Core
 import Data.ByteString.Text.Core.Internal
 import Test.Tasty
@@ -63,6 +63,7 @@ props_List = testGroup "Data.List" $
     testProperty "takeWhile" prop_List_takeWhile :
     testProperty "drop" prop_List_drop :
     testProperty "dropWhile" prop_List_dropWhile :
+    testProperty "concat" prop_List_concat :
     testProperty "filter" prop_List_filter :
     testProperty "isPrefixOf" prop_List_isPrefixOf :
     testProperty "isSuffixOf" prop_List_isSuffixOf :
@@ -93,6 +94,9 @@ prop_List_drop n str = List.drop n str == toList (drop n (fromList str))
 
 prop_List_dropWhile p str =
     List.dropWhile (apply p) str == toList (dropWhile (apply p) (fromList str))
+
+prop_List_concat txts =
+    List.concat (fmap toList txts) == toList (concat txts)
 
 prop_List_filter str =
     List.filter evenChar str == toList (filter evenChar (fromList str))
