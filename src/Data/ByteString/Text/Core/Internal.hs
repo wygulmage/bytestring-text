@@ -60,7 +60,6 @@ import qualified GHC.Exts as GHC
 import GHC.Exts
     ( IsString (..)
     , IsList (..)
-    , ( +# ), ( <=# )
     )
 import qualified GHC.Word as GHC
 
@@ -521,7 +520,7 @@ utf8LengthByLeader :: GHC.Word8 -> Int
 * 4 if w is a leader of 3
 * 5 to 8 for invalid bytes
 -}
-utf8LengthByLeader w8 = GHC.I# (n `GHC.xorI#` (n <=# 0#))
+utf8LengthByLeader w8 = GHC.I# (n `xorI#` (n <=# 0#))
   where
     !(GHC.I# n) = countLeadingZeros (complement w8)
 {-# INLINE utf8LengthByLeader #-}
@@ -531,12 +530,12 @@ utf8Length :: Char -> Int
 utf8Length ( GHC.C# c# ) = GHC.I# ( utf8Length# c# )
 -}
 
-utf8Length# :: GHC.Char# -> GHC.Int#
+utf8Length# :: Char# -> Int#
 utf8Length# c =
        1#
-    +# GHC.geChar# c (GHC.chr# 0x80#)
-    +# GHC.geChar# c (GHC.chr# 0x800#)
-    +# GHC.geChar# c (GHC.chr# 0x10000#)
+    +# geChar# c (chr# 0x80#)
+    +# geChar# c (chr# 0x800#)
+    +# geChar# c (chr# 0x10000#)
 {-# INLINE utf8Length# #-}
 
 
