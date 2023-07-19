@@ -1,4 +1,5 @@
-{-# LANGUAGE NoImplicitPrelude
+{-# LANGUAGE CPP
+           , NoImplicitPrelude
            , MagicHash
   #-}
 
@@ -8,7 +9,10 @@ module Data.ByteString.Text.Core.Internal.Prelude (
 HasCallStack, assert,
 module GHC.Enum,
 module GHC.Err,
-module GHC.Exts, -- Bring basic unlifted operators into scope when MagicHash is enabled.
+module GHC.Exts,
+#if !(__GLASGOW_HASKELL >= 902)
+Word8#, wordToWord8#, word8ToWord#,
+#endif
 module GHC.Num,
 module GHC.Real,
 module Data.Bool,
@@ -30,6 +34,7 @@ module Text.Show,
 
 import GHC.Enum
 import GHC.Err (error, errorWithoutStackTrace, undefined)
+-- Bring basic unlifted operators into scope when MagicHash is enabled:
 import GHC.Exts
   ( Char#
   , eqChar#, neChar#, leChar#, ltChar#, geChar#, gtChar#
@@ -68,3 +73,19 @@ import Text.Read
     , readListDefault, readListPrecDefault
     )
 import Text.Show
+
+#if __GLASGOW_HASKELL >= 902
+import GHC.Exts ( Word8#, word8ToWord#, wordToWord8# )
+
+#else
+import qualified GHC.Exts as Exts ( narrow8Word# )
+
+type Word8# = Word#
+
+word8ToWord# :: Word8# -> Word#
+word8ToWord# w8 = w8
+
+wordToWord8# :: Word# -> Word8#
+wordToWord8# = Exts.narrow8Word#
+{-# INLINE wordToWord8# #-}
+#endif

@@ -13,7 +13,9 @@
 {-| This is the 'Char'-based API for 'Data.ByteString.Text.Core.Text'
 Using 'Char' as the basic unit of 'Text' is problematic. It's unaware of higher level units that should not be split up. For example, 'reverse' will change @"a\\x301"@ (a with combining acute) to @"\\x301\\x61"@ (combining acute followed by a).
 
-Think of this being equivalent to using 8-bit chars in C. It will work fine for a lot of things, but you're always running the risk of garbling text. The only thing that makes this "safe" is that the results are still valid UTF-8 even though they are nonsense.
+The only thing that makes this "safe" is that the results are still valid UTF-8 even though they are nonsense, and you can safely use it to escape, add, and remove control characters.
+
+Think of this being equivalent to using 8-bit chars in C. It will work fine for a lot of things, but you're always running the risk of garbling text.
 -}
 
 module Data.ByteString.Text.Char (

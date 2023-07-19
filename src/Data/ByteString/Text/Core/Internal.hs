@@ -61,7 +61,7 @@ import GHC.Exts
     ( IsString (..)
     , IsList (..)
     )
-import qualified GHC.Word as GHC
+-- import qualified GHC.Word as GHC
 
 import Data.Bits
     ( (.&.), (.|.), complement, countLeadingZeros
@@ -511,7 +511,7 @@ countUtf8BytesSlowFrom i bs = loop i
         leads3 w = 0xF8 .&. w  ==  0xF0
 
 
-utf8LengthByLeader :: GHC.Word8 -> Int
+utf8LengthByLeader :: Word8 -> Int
 {-^ @utf8LengthByLeader w@ is
 * 0 if w is a follower
 * 1 if w is ASCII
