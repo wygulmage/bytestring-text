@@ -18,7 +18,7 @@ module GHC.Num,
 module GHC.Real,
 module Control.Applicative,
 module Data.Bool,
-module Data.Char,
+module Data.Char, chr,
 module Data.Eq,
 module Data.Function,
 module Data.Functor,
@@ -51,6 +51,7 @@ import GHC.Exts
   , not#, and#, or#, xor#
   , clz#
   )
+import qualified GHC.Exts as GHC
 import GHC.Num hiding (quotRemInteger)
 import GHC.Real (fromIntegral)
 import GHC.Stack (HasCallStack)
@@ -58,7 +59,7 @@ import GHC.Stack (HasCallStack)
 import Control.Applicative (Applicative (..))
 import Control.Exception (assert)
 import Data.Bool
-import Data.Char
+import Data.Char hiding (chr)
 import Data.Eq
 import Data.Function
 import Data.Functor
@@ -92,3 +93,14 @@ wordToWord8# :: Word# -> Word8#
 wordToWord8# = Exts.narrow8Word#
 {-# INLINE wordToWord8# #-}
 #endif
+
+chr :: Int -> Char
+{-^ Contvert an 'Int' to a 'Char', replacing invalid 'Int' values with the Unicode replacement character \xFFFD.
+-}
+chr i@( GHC.I# i# )
+    | i < 0
+    ||  (0xD800 <= i && i <= 0xDFFF)  -- UTF-16 surrogates
+    || i >= 0x10FFFF -- max Unicode code point
+    = '\xFFFD'
+    | otherwise
+    = GHC.C# (chr# i# )

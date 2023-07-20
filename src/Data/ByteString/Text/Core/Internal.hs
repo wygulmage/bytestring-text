@@ -597,7 +597,7 @@ utf8LengthByLeader :: Word8 -> Int
 * 4 if w is a leader of 3
 * 5 to 8 for invalid bytes
 -}
-utf8LengthByLeader w8 = GHC.I# (n `xorI#` (n <=# 0#))
+utf8LengthByLeader w8 = GHC.I# (n `xorI#` (n <=# 0#)) -- This makes it 1 for ASCII and 0 for a follower; otherwise it would be the opposite.
   where
     !(GHC.I# n) = countLeadingZeros (complement w8)
 {-# INLINE utf8LengthByLeader #-}
