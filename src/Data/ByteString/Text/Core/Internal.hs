@@ -137,6 +137,8 @@ packN n cs = toTextWith n' (stringUtf8 cs)
 
 singleton :: Char -> Text
 singleton c
+    | isUtf16Surrogate c
+    = replacementCharacter
     | len == 1
     = UnsafeFromByteString (BS.singleton (unChar1 c))
     | len == 2
@@ -147,7 +149,7 @@ singleton c
                 FP.withForeignPtr fp $ \ ptr -> do
                     poke ptr w0
                     pokeByteOff ptr 1 w1
-                pure $! fromForeignPtrLen len fp
+                pure $! unsafeUnpackForeignPtrLen len fp
     | len == 3
     = case unChar3# c of
         (# w0, w1, w2 #) ->
@@ -157,7 +159,7 @@ singleton c
                     poke ptr w0
                     pokeByteOff ptr 1 w1
                     pokeByteOff ptr 2 w2
-                pure $! fromForeignPtrLen len fp
+                pure $! unsafeUnpackForeignPtrLen len fp
     | len == 4
     = case unChar4# c of
         (# w0, w1, w2, w3 #) ->
@@ -168,7 +170,7 @@ singleton c
                     pokeByteOff ptr 1 w1
                     pokeByteOff ptr 2 w2
                     pokeByteOff ptr 3 w3
-                pure $! fromForeignPtrLen len fp
+                pure $! unsafeUnpackForeignPtrLen len fp
     | otherwise
     = errorWithoutStackTrace $
           "Data.ByteString.Text.singleton: Could not process '\\'"
@@ -180,18 +182,7 @@ singleton c
 replacementCharacter :: Text
 {-^ the Unicode replacement character @\'\\xFFFD\'@, rendered \xFFFD
 -}
-replacementCharacter =
-#if MIN_VERSION_base(4,15,0)
-    unsafeFromForeignPtrLen
-        len
-        (GHC.FP.ForeignPtr fffd GHC.FP.FinalPtr)
-#else
-   UnsafeFromByteString
-       (unsafeDupablePerformIO (BS.unsafePackAddressLen len fffd))
-#endif
-  where
-    len = 3
-    fffd = "\xEF\xBF\xBD"#
+replacementCharacter = unsafeUnpackAddrLen# 3# "\xEF\xBF\xBD"#
 
 unpack :: Text -> [Char]
 unpack cs = GHC.build (\ c n -> foldr c n cs)
@@ -399,7 +390,7 @@ instance Ord Builder where
 
 -- Can't name this 'singleton', so we'll keep ByteString's name and rename it when we export it.
 charUtf8 :: Char -> Builder
-charUtf8 = coerce Builder.charUtf8
+charUtf8 = coerce Builder.charUtf8 . replaceBadUtf16
 {-# INLINE charUtf8 #-}
 
 fromText :: Text -> Builder
@@ -408,7 +399,8 @@ fromText = coerce Builder.byteString
 
 -- Can't name this 'fromString', so we'll keep ByteString's name until we export it in a Builder module.
 stringUtf8 :: [Char] -> Builder
-stringUtf8 = coerce Builder.stringUtf8
+stringUtf8 str =
+    UnsafeFromBuilder (Builder.stringUtf8 (fmap replaceBadUtf16 str))
 {-# INLINE stringUtf8 #-}
 
 -- We don't have lazy Text yet, so make do with these:
@@ -440,6 +432,25 @@ chunkOverhead :: Int
 chunkOverhead = 2 * sizeOf (undefined :: Int)
 
 ------ Helpers ------
+
+isUtf16Surrogate :: Char -> Bool
+{-^
+Surrogates are all code points in the ranges xD800 to xDFFF.
+
+Unicode mistakenly tied code points to 16-bit representation and created meaningless "surrogate" code points that, when paired in the correct order, map in UTF-16 to a valid code point outside the Basic Multilingual Plane.
+
+A 'Char' can be a single ("unpaired ") surrogate. UTF-8 cannot encode these error states, so UTF-16 surrogeates must be mapped to the Unicode replacement character (or an error must be thrown).
+-}
+isUtf16Surrogate c = '\xD800' <= c  &&  c <= '\xDFFF'
+{-# INLINE isUtf16Surrogate #-}
+
+replaceBadUtf16 :: Char -> Char
+replaceBadUtf16 c
+    | isUtf16Surrogate c = '\xFFFD'
+    | otherwise = c
+{-# INLINABLE replaceBadUtf16 #-}
+
+
 decodeUtf8 :: BS.ByteString -> Text
 decodeUtf8 bs
         | isValidUtf8 bs = UnsafeFromByteString bs
@@ -553,11 +564,13 @@ countUtf8BytesSlowFrom i bs = loop i
         , 0x800 <= char3' w w1 w2  -- no 'overlong' encodings
         = loop (i + 3)
 
+        -- Here live 4-bit UTF-8 encoded UTF-16 surrogates (MUTF-8, UCS-2), among other things.
+
         | leads3 w
         , (i + 3) < BS.length bs  -- room for followers.
         , isFollower w1 && isFollower w2 && isFollower w3
-        , c <- char4' w w1 w2 w3  -- no 'overlong' encodings
-        , 0x10000 <= c  &&  c <= 0x10FFFF -- Max code point is artificially limited to max UTF-16.
+        , c <- char4' w w1 w2 w3
+        , 0x10000 <= c  &&  c <= 0x10FFFF -- Below 0x1000 are overlong encodings and UTF-16 surrogates; max code point is artificially limited to max UTF-16.
         = loop (i + 4)
 
         | otherwise  -- Hit an invalid byte or didn't have enough room for followers.
@@ -727,18 +740,31 @@ asForeignPtrLen (UnsafeFromByteString (IBS.PS fp off len)) f =
     f len (FP.plusForeignPtr fp off)
 #endif
 
-fromForeignPtrLen :: Int -> FP.ForeignPtr Word8 -> Text
+unsafeUnpackForeignPtrLen :: Int -> FP.ForeignPtr Word8 -> Text
 #if MIN_VERSION_bytestring(0,11,0)
-fromForeignPtrLen len fp = UnsafeFromByteString (IBS.BS fp len)
+unsafeUnpackForeignPtrLen len fp = UnsafeFromByteString (IBS.BS fp len)
 #else
-fromForeignPtrLen len fp = UnsafeFromByteString (IBS.PS fp 0 len)
+unsafeUnpackForeignPtrLen len fp = UnsafeFromByteString (IBS.PS fp 0 len)
 #endif
+
 
 -- toForeignPtr0 :: BS.ByteString -> (ForeignPtr, Int)
 -- toForeignPtr0 bs =
 --     case IBS.toForeignPtr bs of
 --         (fp, off, len) -> let !fp' = plusForeignPtr fp off in (fp', len)
 
+unsafeUnpackAddrLen# :: Int# -> GHC.Addr# -> Text
+unsafeUnpackAddrLen# len# addr# =
+#if MIN_VERSION_base(4,15,0)
+    unsafeFromForeignPtrLen
+        ( GHC.I# len# )
+        ( GHC.FP.ForeignPtr addr# GHC.FP.FinalPtr )
+#else
+   UnsafeFromByteString
+       (unsafeDupablePerformIO
+           ( BS.unsafePackAddressLen ( GHC.I# len# ) addr# ))
+#endif
+{-# INLINE unsafeUnpackAddrLen# #-}
 
 {- Note: Security Model
 https://unicode.org/reports/tr36/
