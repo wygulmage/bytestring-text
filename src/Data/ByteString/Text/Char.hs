@@ -56,17 +56,17 @@ import GHC.Exts (build)
 import qualified Data.List as List
 
 
-singleton :: Char -> Text
-{-^ O(1)
->>> singleton 'a'
-"a"
--}
--- singleton = toTextWith 4 . charUtf8  -- Using the Builder-based definition leads to massive code size blowup.
-singleton !c = UnsafeFromByteString $ case charBytes c of
-    CharBytes1 w0 -> BS.singleton w0
-    CharBytes2 w0 w1 -> BS.unsafePackLenBytes 2 (w0 : w1 : [])
-    CharBytes3 w0 w1 w2 -> BS.unsafePackLenBytes 3 (w0 : w1 : w2 : [])
-    CharBytes4 w0 w1 w2 w3 -> BS.unsafePackLenBytes 4 (w0 : w1 : w2 : w3 : [])
+-- singleton :: Char -> Text
+-- {-^ O(1)
+-- >>> singleton 'a'
+-- "a"
+-- -}
+-- -- singleton = toTextWith 4 . charUtf8  -- Using the Builder-based definition leads to massive code size blowup.
+-- singleton !c = UnsafeFromByteString $ case charBytes c of
+--     CharBytes1 w0 -> BS.singleton w0
+--     CharBytes2 w0 w1 -> BS.unsafePackLenBytes 2 (w0 : w1 : [])
+--     CharBytes3 w0 w1 w2 -> BS.unsafePackLenBytes 3 (w0 : w1 : w2 : [])
+--     CharBytes4 w0 w1 w2 w3 -> BS.unsafePackLenBytes 4 (w0 : w1 : w2 : w3 : [])
 
 concatMap :: (Char -> Text) -> Text -> Text
 concatMap f = concat . List.map f . unpack

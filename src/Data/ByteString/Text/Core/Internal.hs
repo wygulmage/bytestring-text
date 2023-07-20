@@ -19,7 +19,7 @@
 module Data.ByteString.Text.Core.Internal (
 Text (..),
 -- * Construct:
-pack,
+pack, singleton,
 append, concat, empty,
 decodeUtf8, decodeUtf8Lenient,
 -- * Consume:
@@ -50,6 +50,7 @@ import Data.ByteString.Text.Core.Internal.Prelude
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.ByteString.Internal as IBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Builder.Extra as Builder
@@ -68,7 +69,10 @@ import Data.Bits
     , unsafeShiftL, unsafeShiftR,
     )
 import Data.Coerce (coerce)
-import Foreign.Storable (sizeOf)
+import Foreign.Storable (poke, pokeByteOff, sizeOf)
+import qualified Foreign.ForeignPtr as FP
+import qualified GHC.ForeignPtr as GHC.FP
+import System.IO.Unsafe (unsafeDupablePerformIO)
 
 -- Doctests don't work in this module because it uses UnboxedTuples.
 
@@ -129,6 +133,54 @@ packN n cs = toTextWith n' (stringUtf8 cs)
     !n' = min defaultChunkSize (n * 4)
     -- Maximum number of bytes in a packed string of n Char is n * 4. Should this instead optimistically try n * 3?
 {-# INLINE packN #-}
+
+singleton :: Char -> Text
+singleton c
+    | len == 1
+    = UnsafeFromByteString (BS.singleton (unChar1 c))
+    | len == 2
+    = case unChar2# c of
+        (# w0, w1 #) ->
+            unsafeDupablePerformIO $ do
+                fp <- FP.mallocForeignPtrBytes len
+                FP.withForeignPtr fp $ \ ptr -> do
+                    poke ptr w0
+                    pokeByteOff ptr 1 w1
+                pure $! fromForeignPtrLen len fp
+    | len == 3
+    = case unChar3# c of
+        (# w0, w1, w2 #) ->
+            unsafeDupablePerformIO $ do
+                fp <- FP.mallocForeignPtrBytes len
+                FP.withForeignPtr fp $ \ ptr -> do
+                    poke ptr w0
+                    pokeByteOff ptr 1 w1
+                    pokeByteOff ptr 2 w2
+                pure $! fromForeignPtrLen len fp
+    | len == 4
+    = case unChar4# c of
+        (# w0, w1, w2, w3 #) ->
+            unsafeDupablePerformIO $ do
+                fp <- FP.mallocForeignPtrBytes len
+                FP.withForeignPtr fp $ \ ptr -> do
+                    poke ptr w0
+                    pokeByteOff ptr 1 w1
+                    pokeByteOff ptr 2 w2
+                    pokeByteOff ptr 3 w3
+                pure $! fromForeignPtrLen len fp
+    | otherwise
+    = errorWithoutStackTrace $
+          "Data.ByteString.Text.singleton: Could not process '\\'"
+       <> show c
+
+  where
+    !len = utf8Length c
+
+-- unicodeReplacementCharacter :: Text
+-- unicodeReplacementCharacter =
+--     unsafeFromForeignPtrLen
+--         2
+--         (GHC.FP.ForeignPtr "\xEF\xBF\xBD"# GHC.FP.FinalPtr)
 
 unpack :: Text -> [Char]
 unpack cs = GHC.build (\ c n -> foldr c n cs)
@@ -525,10 +577,10 @@ utf8LengthByLeader w8 = GHC.I# (n `xorI#` (n <=# 0#))
     !(GHC.I# n) = countLeadingZeros (complement w8)
 {-# INLINE utf8LengthByLeader #-}
 
-{-
+
 utf8Length :: Char -> Int
 utf8Length ( GHC.C# c# ) = GHC.I# ( utf8Length# c# )
--}
+{-# INLINE utf8Length #-}
 
 utf8Length# :: Char# -> Int#
 utf8Length# c =
@@ -653,6 +705,22 @@ word8ToInt :: Word8 -> Int
 word8ToInt = fromIntegral
 {-# INLINE word8ToInt #-}
 -}
+
+asForeignPtrLen :: Text -> (Int -> FP.ForeignPtr Word8 -> r) -> r
+#if MIN_VERSION_bytestring(0,11,0)
+asForeignPtrLen (UnsafeFromByteString (IBS.BS fp len)) f =
+    f len fp
+#else
+asForeignPtrLen (UnsafeFromByteString (IBS.PS fp off len)) f =
+    f len (FP.plusForeignPtr fp off)
+#endif
+
+fromForeignPtrLen :: Int -> FP.ForeignPtr Word8 -> Text
+#if MIN_VERSION_bytestring(0,11,0)
+fromForeignPtrLen len fp = UnsafeFromByteString (IBS.BS fp len)
+#else
+fromForeignPtrLen len fp = UnsafeFromByteString (IBS.PS fp 0 len)
+#endif
 
 -- toForeignPtr0 :: BS.ByteString -> (ForeignPtr, Int)
 -- toForeignPtr0 bs =

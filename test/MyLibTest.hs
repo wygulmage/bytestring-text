@@ -2,6 +2,7 @@ module Main (main) where
 
 import Prelude hiding
     (concat, concatMap, drop, dropWhile, elem, filter, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
+import Data.ByteString.Text.Char
 import Data.ByteString.Text.Core
 import Data.ByteString.Text.Core.Internal
 import Test.Tasty

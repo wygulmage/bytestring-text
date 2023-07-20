@@ -6,6 +6,7 @@
 {-| This module exists to avoid name clashes created by importing 'Prelude' unqualified.
 -}
 module Data.ByteString.Text.Core.Internal.Prelude (
+($!),
 HasCallStack, assert,
 module GHC.Enum,
 module GHC.Err,
@@ -15,6 +16,7 @@ Word8#, wordToWord8#, word8ToWord#,
 #endif
 module GHC.Num,
 module GHC.Real,
+module Control.Applicative,
 module Data.Bool,
 module Data.Char,
 module Data.Eq,
@@ -32,6 +34,7 @@ module Text.Read,
 module Text.Show,
 ) where
 
+import GHC.Base (($!))
 import GHC.Enum
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 -- Bring basic unlifted operators into scope when MagicHash is enabled:
@@ -52,8 +55,8 @@ import GHC.Num hiding (quotRemInteger)
 import GHC.Real (fromIntegral)
 import GHC.Stack (HasCallStack)
 
+import Control.Applicative (Applicative (..))
 import Control.Exception (assert)
-
 import Data.Bool
 import Data.Char
 import Data.Eq
