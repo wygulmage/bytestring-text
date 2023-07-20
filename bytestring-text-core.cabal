@@ -23,6 +23,7 @@ library
     Data.ByteString.Text.Core.Unsafe
     Data.ByteString.Text.Core.Internal
   other-modules:
+    Data.ByteString.Text.Core.Internal.Utf8
     Data.ByteString.Text.Core.Internal.Prelude
   other-extensions:    NoImplicitPrelude
   build-depends:

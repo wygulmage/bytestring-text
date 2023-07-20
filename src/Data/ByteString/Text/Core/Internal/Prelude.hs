@@ -17,6 +17,7 @@ Word8#, wordToWord8#, word8ToWord#,
 module GHC.Num,
 module GHC.Real,
 module Control.Applicative,
+module Data.Bits,
 module Data.Bool,
 module Data.Char, chr, chr',
 module Data.Eq,
@@ -58,6 +59,7 @@ import GHC.Stack (HasCallStack)
 
 import Control.Applicative (Applicative (..))
 import Control.Exception (assert)
+import Data.Bits hiding (bitSize)
 import Data.Bool
 import Data.Char hiding (chr)
 import Data.Eq
@@ -110,6 +112,7 @@ chr' w@( GHC.W# w# )
     = '\xFFFD'
     | otherwise
     = GHC.C# ( chr'# w# )
+{-# INLINABLE chr' #-}
 
 chr'# :: Word# -> Char#
 chr'# w = chr# (GHC.word2Int# w)
