@@ -677,10 +677,6 @@ unmarkTail :: Word8 -> Word8
 unmarkTail = (.&.) 0x3F
 {-# INLINE unmarkTail #-}
 
-chr' :: Word -> Char
-chr' = chr . fromIntegral
-{-# INLINE chr' #-}
-
 char1' :: Word8 -> Word
 char1' = fromIntegral
 {-# INLINE char1' #-}

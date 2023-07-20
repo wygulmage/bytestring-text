@@ -10,7 +10,7 @@ module Data.ByteString.Text.Core.Internal.Prelude (
 HasCallStack, assert,
 module GHC.Enum,
 module GHC.Err,
-module GHC.Exts,
+module GHC.Exts, chr'#,
 #if !(__GLASGOW_HASKELL >= 902)
 Word8#, wordToWord8#, word8ToWord#,
 #endif
@@ -18,7 +18,7 @@ module GHC.Num,
 module GHC.Real,
 module Control.Applicative,
 module Data.Bool,
-module Data.Char, chr,
+module Data.Char, chr, chr',
 module Data.Eq,
 module Data.Function,
 module Data.Functor,
@@ -94,13 +94,23 @@ wordToWord8# = Exts.narrow8Word#
 {-# INLINE wordToWord8# #-}
 #endif
 
+
 chr :: Int -> Char
 {-^ Contvert an 'Int' to a 'Char', replacing invalid 'Int' values with the Unicode replacement character \xFFFD.
 -}
-chr i@( GHC.I# i# )
-    | i < 0
-    ||  (0xD800 <= i && i <= 0xDFFF)  -- UTF-16 surrogates
-    || i >= 0x10FFFF -- max Unicode code point
+chr ( GHC.I# i# ) = chr' ( GHC.W# ( GHC.int2Word# i# ))
+{-# INLINE chr #-}
+
+chr' :: Word -> Char
+{-^ Convert a 'Word' to a 'Char', replacing invalid 'Int' values with the Unicode replacement character \xFFFD.
+-}
+chr' w@( GHC.W# w# )
+    | w > 0x10FFFF -- max Unicode code point
+    || (0xD800 <= w  &&  w <= 0xDFFF) -- UTF-16 surrogates
     = '\xFFFD'
     | otherwise
-    = GHC.C# (chr# i# )
+    = GHC.C# ( chr'# w# )
+
+chr'# :: Word# -> Char#
+chr'# w = chr# (GHC.word2Int# w)
+{-# INLINE chr'# #-}
