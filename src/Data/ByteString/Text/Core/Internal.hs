@@ -41,6 +41,7 @@ toText, toTextWith,
 charUtf8, stringUtf8, fromText,
 defaultChunkSize, smallChunkSize,
 -- * Helpers:
+replacementCharacter,
 isValidUtf8,
 CharBytes(..), charBytes,
 foldrCharBytes,
@@ -176,11 +177,21 @@ singleton c
   where
     !len = utf8Length c
 
--- unicodeReplacementCharacter :: Text
--- unicodeReplacementCharacter =
---     unsafeFromForeignPtrLen
---         2
---         (GHC.FP.ForeignPtr "\xEF\xBF\xBD"# GHC.FP.FinalPtr)
+replacementCharacter :: Text
+{-^ the Unicode replacement character @\'\\xFFFD\'@, rendered \xFFFD
+-}
+replacementCharacter =
+#if MIN_VERSION_base(4,15,0)
+    unsafeFromForeignPtrLen
+        len
+        (GHC.FP.ForeignPtr fffd GHC.FP.FinalPtr)
+#else
+   UnsafeFromByteString
+       (unsafeDupablePerformIO (BS.unsafePackAddressLen len fffd))
+#endif
+  where
+    len = 3
+    fffd = "\xEF\xBF\xBD"#
 
 unpack :: Text -> [Char]
 unpack cs = GHC.build (\ c n -> foldr c n cs)
@@ -465,7 +476,8 @@ decodeUtf8With' onError bs
 replaceOnError :: BS.ByteString -> Builder
 {-^ Replace all maximal non-UTF-8 subsequences of the argument with @\'\\xFFFD\'@.
 -}
-replaceOnError bs = charUtf8 '\xFFFD' <> replaceOnError_loop (BS.tail bs)
+replaceOnError bs =
+    fromText replacementCharacter <> replaceOnError_loop (BS.tail bs)
   where
     replaceOnError_loop bs' =
         case spanUtf8 bs' of

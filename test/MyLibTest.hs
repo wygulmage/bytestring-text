@@ -47,6 +47,8 @@ props = testGroup "All Properties" $
     testProperty "compareLength = compare . length"
         prop_compareLength :
     props_is_fixOf :
+    testProperty "unicodeReplacementCharcacter = '\\xFFFD'"
+        prop_fffd :
     -- testProperty "map id = id"
     --     prop_map_id :
     []
@@ -171,6 +173,8 @@ prop_text_dropWhileEnd p str =
 
 
 ------ General Sanity Checks
+
+prop_fffd = replacementCharacter == singleton '\xFFFD'
 
 prop_isValidUtf8_decodeUtf8Lenient (BS bs) =
     isValidUtf8 (encodeUtf8 (decodeUtf8Lenient bs))
