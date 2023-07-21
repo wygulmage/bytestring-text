@@ -77,6 +77,7 @@ zip, zipWith,
 import Data.ByteString.Text.Core
 import Data.ByteString.Text.Core.Internal
 import Data.ByteString.Text.Core.Internal.Prelude
+import Data.ByteString.Text.Core.Internal.Utf8
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
@@ -104,6 +105,7 @@ import qualified Data.List as List
 
 map :: (Char -> Char) -> Text -> Text
 map f = pack . List.map f . unpack
+-- `pack` replaces invalid `Char`s; if this is redefined to be more efficient, may need to compose `replaceBadUtf16` after f.
 {-# INLINE [~0] map #-}
 
 concatMap :: (Char -> Text) -> Text -> Text

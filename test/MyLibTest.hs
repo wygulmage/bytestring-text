@@ -4,7 +4,7 @@ import Prelude hiding
     (concat, concatMap, drop, dropWhile, elem, filter, head, init, last, length, map, maximum, minimum, null, reverse, singleton, span, splitAt, tail, take, takeWhile)
 import Data.ByteString.Text.Char
 import Data.ByteString.Text.Core
-import Data.ByteString.Text.Core.Internal
+import Data.ByteString.Text.Core.Internal hiding (fromString)
 import Test.Tasty
 import Test.Tasty.QuickCheck
 import Test.QuickCheck (Arbitrary (..))
@@ -50,8 +50,8 @@ props = testGroup "All Properties" $
     props_is_fixOf :
     testProperty "unicodeReplacementCharcacter = '\\xFFFD'"
         prop_fffd :
-    -- testProperty "map id = id"
-    --     prop_map_id :
+    testProperty "map id = id"
+        prop_map_id :
     []
 
 
@@ -73,6 +73,7 @@ props_List = testGroup "Data.List" $
     testProperty "isSuffixOf" prop_List_isSuffixOf :
     testProperty "isInfixOf" prop_List_isInfixOf :
     testProperty "stripPrefix" prop_List_stripPrefix :
+    testProperty "map" prop_List_map :
     []
 
 evenChar c = fromEnum c `rem` 2 == 0
@@ -117,6 +118,11 @@ prop_List_isInfixOf pre str =
 prop_List_stripPrefix pre str =
     List.stripPrefix pre str
  == fmap toList (stripPrefix (fromList pre) (fromList str))
+
+prop_List_map f str =
+    pack (List.map (apply f) str)
+ == map (apply f) (pack str)
+-- `pack` applies applies the same replacement as `map`
 
 
 ------ Make sure that the API is equivalent to the Data.Text API.
@@ -189,20 +195,19 @@ prop_concatMap_singleton cs = concatMap singleton cs == cs
 
 
 props_take_drop = testGroup "drop, dropEnd, take, takeEnd" $
-    testProperty "drop 0 = id"
-        prop_drop_0 :
-    testProperty "0 <= n ==> length (drop n cs) == max 0 (length cs - n)"
+    testProperty "drop 0 = id" prop_drop_0 :
+    testProperty
+        "n >= 0  ==>  length (drop n cs) == max 0 (length cs - n)"
         prop_drop_length :
-    testProperty "dropEnd 0 = id"
-        prop_dropEnd_0 :
-    testProperty "0 <= n ==> length (dropEnd n cs) == max 0 (length cs - n)"
+    testProperty "dropEnd 0 = id" prop_dropEnd_0 :
+    testProperty
+        "n >= 0  ==>  length (dropEnd n cs) == max 0 (length cs - n)"
         prop_dropEnd_length :
     testProperty "take (length cs) cs = cs"
         prop_take_all :
     testProperty "0 <= n ==> length (take n cs) == min n (length cs)"
         prop_take_length :
-    testProperty "takeEnd (length cs) cs = cs"
-        prop_takeEnd_all :
+    testProperty "takeEnd (length cs) cs = cs" prop_takeEnd_all :
     testProperty "0 <= n ==> length (takeEnd n cs) == min n (length cs)"
         prop_takeEnd_length :
     testProperty "splitAt n cs == (take n cs, drop n cs)"
@@ -297,15 +302,4 @@ prop_stripSuffix_isSuffix suf cs
 
 prop_copy cs = cs == copy cs
 
--- prop_map_id cs = map id cs == cs
-
--- props_list_equivalent_summaries =
---     testGroup "summary = List.summary . toList" $
---         testProperty "maximum" prop_list_maximum :
---         testProperty "minimum" prop_list_minimum :
---         testProperty "elem" prop_list_elem :
---         []
-
--- prop_list_maximum cs = maximum cs == List.maximum (toList cs)
--- prop_list_minimum cs = minimum cs == List.minimum (toList cs)
--- prop_list_elem c cs = elem c cs == List.elem c (toList cs)
+prop_map_id cs = map id cs == cs

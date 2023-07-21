@@ -7,7 +7,6 @@
            , UnboxedTuples
            , TypeFamilies
            , CPP
-           , MultiWayIf
   #-}
 
 {-# OPTIONS_HADDOCK not-home
@@ -41,7 +40,7 @@ dropWord8,
 -- * Builder:
 Builder (..),
 toText, toTextWith,
-charUtf8, stringUtf8, fromText,
+charUtf8, fromString, fromText,
 defaultChunkSize, smallChunkSize,
 -- * Helpers:
 replacementCharacter,
@@ -64,7 +63,7 @@ import Control.DeepSeq (NFData)
 
 import qualified GHC.Exts as GHC
 import GHC.Exts
-    ( IsString (..)
+    ( IsString
     , IsList (..)
     )
 -- import qualified GHC.Word as GHC
@@ -133,11 +132,11 @@ instance IsList Text where
     {-# INLINE fromListN #-}
 
 pack :: [Char] -> Text
-pack = toText . stringUtf8
+pack = toText . fromString
 {-# INLINE pack #-}
 
 packN :: Int -> [Char] -> Text
-packN n cs = toTextWith n' (stringUtf8 cs)
+packN n cs = toTextWith n' (fromString cs)
   where
     !n' = min defaultChunkSize (n * 4)
     -- Maximum number of bytes in a packed string of n Char is n * 4. Should this instead optimistically try n * 3?
@@ -377,12 +376,18 @@ dropWord8 = coerce BS.unsafeDrop
 
 ------ Builder ------
 
+{- Note: Builder and character boundaries
+Builder accumulates bytes. It is not Unicode-aware. This works great when producing strict Text, but it makes segmentation a PITA when producing lazy text. You have to check the end of each buffer for a partial code point, and if there is one, shove it onto the next chunk of Text or create an extra one-code-point chunk that includes the partial code point from the beginning of the next buffer (while respecting chunk size invariants).
+-}
+
 newtype Builder = UnsafeFromBuilder Builder.Builder
   deriving newtype
     (Monoid, Semigroup)
+{-^ @Builder@ is an efficient way to incrementally build a 'Text'.
+-}
 
 instance IsString Builder where
-    fromString = stringUtf8
+    fromString = fromString
     {-# INLINE fromString #-}
 
 instance Show Builder where
@@ -396,20 +401,29 @@ instance Ord Builder where
     UnsafeFromBuilder k1 `compare` UnsafeFromBuilder k2 =
         Builder.toLazyByteString k1 `compare` Builder.toLazyByteString k2
 
--- Can't name this 'singleton', so we'll keep ByteString's name and rename it when we export it.
 charUtf8 :: Char -> Builder
+{-^ Convert a 'Char' to 'Builder'.
+Replaces non-Unicode 'Char' values with the Unicode replacement character.
+
+@charUtf8@ is exported as 'Data.ByteString.Text.Builder.singleton'
+-}
 charUtf8 = coerce Builder.charUtf8 . replaceBadUtf16
+-- charUtf8 = fromText . singleton
 {-# INLINE charUtf8 #-}
 
+fromString :: [Char] -> Builder
+{-^ Convert a @['Char']@ to a 'Builder'.
+Replaces non-Unicode 'Char' values with the Unicode replacement character.
+-}
+fromString str =
+    UnsafeFromBuilder (Builder.stringUtf8 (fmap replaceBadUtf16 str))
+{-# INLINE fromString #-}
+
 fromText :: Text -> Builder
+{-^ Convert a 'Text' to a 'Builder'
+-}
 fromText = coerce Builder.byteString
 {-# INLINE fromText #-}
-
--- Can't name this 'fromString', so we'll keep ByteString's name until we export it in a Builder module.
-stringUtf8 :: [Char] -> Builder
-stringUtf8 str =
-    UnsafeFromBuilder (Builder.stringUtf8 (fmap replaceBadUtf16 str))
-{-# INLINE stringUtf8 #-}
 
 -- We don't have lazy Text yet, so make do with these:
 toText :: Builder -> Text
@@ -418,7 +432,9 @@ toText = toTextWith smallChunkSize
 {-# INLINE toText #-}
 
 toTextWith :: Int -> Builder -> Text
-{-^ O(n) Convert 'Builder' to 'Text'. The @Int@ is the first buffer size, and should be your best estimate of the size of the result 'Text'.
+{-^ O(n)
+Convert a 'Builder' to a 'Text'.
+The @Int@ is the first buffer size, and should be your best estimate of the size of the result 'Text'.
 -}
 toTextWith sizeHint (UnsafeFromBuilder k) =
     UnsafeFromByteString (LBS.toStrict (Builder.toLazyByteStringWith
@@ -428,15 +444,25 @@ toTextWith sizeHint (UnsafeFromBuilder k) =
 {-# INLINE toTextWith #-}
 
 defaultChunkSize :: Int
-{-^ Default chunk size in bytes. Currently 16 kibibites minus 'chunkOverhead'. -}
+{-^ Default chunk size in bytes. Slightly less than 16 kibibites.
+
+This is about half (at the time of writing) the default chunk size of 'Data.ByteString.Builder.Builder'.
+
+>>> defaultChunkSize
+16368
+-}
 defaultChunkSize = 16 * 1024  -  chunkOverhead
 
 smallChunkSize :: Int
-{-^ Small chunk size in bytes. Currently 128 bytes minus GHC's memory 'chunkOverhead'. -}
+{-^ Small chunk size in bytes.
+
+>>> smallChunkSize
+102
+-}
 smallChunkSize = 128 - chunkOverhead
 
 chunkOverhead :: Int
-{-^ GHC's memory management overhead (as of writing); for a 64-bit system this is 16 bytes. -}
+{-^ GHC's memory management overhead (as of writing, according to bytestring); for a 64-bit system this is 16 bytes. -}
 chunkOverhead = 2 * sizeOf (undefined :: Int)
 
 ------ Helpers ------
@@ -490,30 +516,6 @@ replaceOnError bs =
                 -> replaceOnError_loop (BS.tail bs'') -- Do not produce another FFFD.
                 | otherwise
                 -> fromText txt <> replaceOnError bs'' -- Do produce another FFFD.
--- replaceOnError bs = charUtf8 '\xFFFD' <> loop 1 -- Start bad byte, which was just replaced.
---   where
---     loop !i
---         | i >= BS.length bs
---         = mempty
---         --  | isAscii' w || leads1 w || leads2 w || leads3 w
---         | utf8LengthByLeader w > 0 -- is leader, probably; spanUtf8 will do the real work of checking.
---         , (txt, bs') <- spanUtf8 (BS.drop i bs)
---         = if null txt
---             then loop (i + 1) -- Don't produce 2 consecutive FFFDs.
---             else if BS.null bs'
---                     then fromText txt
---                     else fromText txt <> replaceOnError bs'
---         | otherwise
---         = loop (i + 1)
-
---       where
---         w = BS.index bs i
---         isAscii' w = w <= 0x7F
---         leads1 w = 0xE0 .&. w  ==  0xC0
---         leads2 w = 0xF0 .&. w  ==  0xE0
---         leads3 w = 0xF8 .&. w  ==  0xF0
-
-
 
 spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 {-^ O(n)
@@ -521,12 +523,9 @@ spanUtf8 :: BS.ByteString -> (Text, BS.ByteString)
 -}
 spanUtf8 bs = (txt, bs')
   where
-    i = countUtf8BytesSlow bs
+    !i = countUtf8BytesSlow bs
     !txt = UnsafeFromByteString (BS.unsafeTake i bs)
     !bs' = BS.unsafeDrop i bs
-    -- i = I# ( countUtf8Bytes# bs )
-    -- !txt = UnsafeFromByteString (BS.unsafeTake i bs)
-    -- !bs' = BS.unsafeDrop i bs
 {-# INLINE spanUtf8 #-}
 
 countUtf8BytesSlow :: BS.ByteString -> Int
