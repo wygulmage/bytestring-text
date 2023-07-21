@@ -45,4 +45,5 @@ test-suite bytestring-text-core-test
     tasty-quickcheck,
     tasty,
     QuickCheck,
+    quickcheck-unicode,
     text,

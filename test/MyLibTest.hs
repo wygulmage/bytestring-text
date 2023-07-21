@@ -9,6 +9,7 @@ import Test.Tasty
 import Test.Tasty.QuickCheck
 import Test.QuickCheck (Arbitrary (..))
 import Test.QuickCheck.Function (apply)
+import Test.QuickCheck.Unicode (fromUnicode)
 import GHC.Exts (fromString, fromList, toList)
 import qualified Data.List as List
 import qualified Data.ByteString as BS
@@ -175,6 +176,9 @@ prop_text_dropWhileEnd p str =
 ------ General Sanity Checks
 
 prop_fffd = replacementCharacter == singleton '\xFFFD'
+
+prop_isValidUtf8 =
+    isValidUtf8 . encodeUtf8 . pack . fromUnicode
 
 prop_isValidUtf8_decodeUtf8Lenient (BS bs) =
     isValidUtf8 (encodeUtf8 (decodeUtf8Lenient bs))

@@ -16,6 +16,7 @@ Word8#, wordToWord8#, word8ToWord#,
 #endif
 module GHC.Num,
 module GHC.Real,
+module GHC.Word,
 module Control.Applicative,
 module Data.Bits,
 module Data.Bool,
@@ -30,7 +31,6 @@ module Data.Maybe,
 module Data.Monoid,
 module Data.Semigroup,
 module Data.Tuple,
-module Data.Word,
 module Text.Read,
 module Text.Show,
 ) where
@@ -56,6 +56,7 @@ import qualified GHC.Exts as GHC
 import GHC.Num hiding (quotRemInteger)
 import GHC.Real (fromIntegral)
 import GHC.Stack (HasCallStack)
+import GHC.Word
 
 import Control.Applicative (Applicative (..))
 import Control.Exception (assert)
@@ -72,7 +73,6 @@ import Data.Maybe (Maybe (..))
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
 import Data.Tuple
-import Data.Word
 
 import Text.Read
     ( Read (readPrec, readList, readListPrec)

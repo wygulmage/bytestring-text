@@ -35,9 +35,43 @@ take, takeWhile, takeEnd, takeWhileEnd,
 --- Summarize
 compareLength, length, -- measureOff,
 --- Transform
-concatMap,
+map, concatMap,
 filter,
 reverse,
+
+{- For comparison, here is the Char-based part of the Data.Text API:
+
+--- Char-based producers (some of these should be provided by this module)
+pack, unpack, singleton,
+cons, snoc,
+unfoldr, unfoldrN,
+
+--- single-Char consumers (these should be provided by the Char submodule)
+uncons, unsnoc, head, last, tail, init, inits, tails,
+
+--- all-Char consumers (these should be provided by the Char submodule)
+foldl, foldl', foldl1, foldl1', foldr, foldr', foldr1,
+
+--- Char-based summaries ("safe" but misleading; these should be provided by the Char submodule)
+length, compareLength, measureOff,
+any, all, maximum, minimum,
+index, findIndex, count,
+find, elem,
+
+--- Char-based transformers (can easily garble perceived text; some should be provided by the Char submodule; others may be dropped completely)
+map, concatMap,
+intersperse, transpose, reverse,  -- E.g. reverse can put an accent on the wrong glyph.
+justifyLeft, justifyRight, center,  -- These rely on Char count rather than glyph width, aren't bidirectional-aware. Also they pad rather than justifying!
+scanl, scanl1, scanr, scanr1,
+mapAccumL, mapAccumR,
+take, takeEnd, drop, dropEnd, takeWhile, takeWhileEnd, dropWhile, dropWhileEnd, dropAround,  -- can easily split a base from its modifiers
+splitAt, break,  -- can easily split a base and its modifiers
+span, spanM, spanEndM,  -- can easily split a base from its modifiers
+group, groupBy,  -- will split a base from its modifiers
+split, chunksOf,  -- can easily split a base from its modifiers
+filter, partition,  -- can easily remove a base while leaving its modifiers (which will then apply to the previous Char)
+zip, zipWith,
+-}
 ) where
 
 import Data.ByteString.Text.Core
@@ -67,6 +101,10 @@ import qualified Data.List as List
 --     CharBytes2 w0 w1 -> BS.unsafePackLenBytes 2 (w0 : w1 : [])
 --     CharBytes3 w0 w1 w2 -> BS.unsafePackLenBytes 3 (w0 : w1 : w2 : [])
 --     CharBytes4 w0 w1 w2 w3 -> BS.unsafePackLenBytes 4 (w0 : w1 : w2 : w3 : [])
+
+map :: (Char -> Char) -> Text -> Text
+map f = pack . List.map f . unpack
+{-# INLINE [~0] map #-}
 
 concatMap :: (Char -> Text) -> Text -> Text
 concatMap f = concat . List.map f . unpack
@@ -145,7 +183,6 @@ prop> \ n txt -> splitAt n txt == (take n txt, drop n txt)
 splitAt !n !cs = case splitAt# n cs of (# tcs, dcs #) -> (tcs, dcs)
 {-# INLINE splitAt #-}
 
--- Just a bit of premature optimization here.
 splitAt# :: Int -> Text -> (# Text, Text #)
 splitAt# !n !cs = (# tcs, dcs #)
   where
@@ -155,6 +192,9 @@ splitAt# !n !cs = (# tcs, dcs #)
 
 span :: (Char -> Bool) -> Text -> (Text, Text)
 {-^ O(n)
+@span p txt = ('takeWhile' p txt, 'dropWhile' p txt)@, but it is significantly more efficient.
+
+prop> \ p txt -> span (apply p) txt == (takeWhile (apply p) txt, dropWhile (apply p) txt)
 -}
 span p !cs = case span# p cs of (# tcs, dcs #) -> (tcs, dcs)
 {-# INLINE span #-}
@@ -167,22 +207,14 @@ span# p !cs = (# tcs, dcs #)
 {-# INLINABLE span# #-}
 
 drop :: Int -> Text -> Text
+{-^ O(n)
+@drop n txt@ is @txt@ without the first @n@ 'Char's. If @n >= 'length' txt@, the result is 'empty'.
+-}
 drop !n !cs
     | n <= 0 = cs
     | null cs = empty  -- Avoid creating extra empty values.
     | otherwise = drop (n - 1) (unsafeTail cs)
 {-# NOTINLINE drop #-} -- recursive
-
-dropWhile :: (Char -> Bool) -> Text -> Text
-dropWhile p = dropWhile_loop
-  where
-    dropWhile_loop !cs =
-        case uncons cs of
-            Just (c, cs')
-                | p c -> dropWhile_loop cs'
-                | otherwise -> cs
-            Nothing -> empty  -- Avoid creating extra empty values.
-{-# INLINE [~0] dropWhile #-}
 
 dropEnd :: Int -> Text -> Text
 {-^ O(n) @dropEnd n txt@ is all except the last @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is 'empty'.
@@ -198,7 +230,24 @@ dropEnd !n !cs
         Nothing -> empty  -- Avoid creating extra empty values.
 {-# NOTINLINE dropEnd #-} -- recursive
 
+dropWhile :: (Char -> Bool) -> Text -> Text
+{-^ O(n)
+@dropWhile p txt@ removes the longest prefix of 'Char's that satisfy @p@ from @txt@.
+-}
+dropWhile p = dropWhile_loop
+  where
+    dropWhile_loop !cs =
+        case uncons cs of
+            Just (c, cs')
+                | p c -> dropWhile_loop cs'
+                | otherwise -> cs
+            Nothing -> empty  -- Avoid creating extra empty values.
+{-# INLINE [~0] dropWhile #-}
+
 dropWhileEnd :: (Char -> Bool) -> Text -> Text
+{-^ O(n)
+@dropWhileEnd p txt@ removes the longest suffix of 'Char's that satisfy @p@ from @txt@.
+-}
 dropWhileEnd p = dropWhileEnd_loop
   where
     dropWhileEnd_loop !cs =
@@ -210,24 +259,29 @@ dropWhileEnd p = dropWhileEnd_loop
 {-# INLINE [~0] dropWhileEnd #-} -- recursive
 
 take :: Int -> Text -> Text
-{-^ O(n) @take n txt@ is the first @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is @txt@. -}
+{-^ O(n)
+@take n txt@ is the first @n@ 'Char's of @txt@ if @'length' txt >= n@; otherwise it is @txt@.
+-}
 take !n !cs = case splitAt# n cs of (# cs', _ #) -> cs'
 {-# NOTINLINE take #-}
 
+takeEnd :: Int -> Text -> Text
+{-^ O(n)
+@takeEnd n txt@ is the last @n@ 'Char's of @txt@ of @'length' txt >= n@; otherwise it is @txt@.
+-}
+takeEnd !n !cs = dropWord8 (lengthWord8 (dropEnd n cs)) cs
+{-# NOTINLINE takeEnd #-}
+
 takeWhile :: (Char -> Bool) -> Text -> Text
 {-^ O(n)
+@takeWhile p txt@ is @txt@'s longest prefix of 'Char's that satisfy @p@.
 -}
 takeWhile p !cs = case span# p cs of (# cs', _ #) -> cs'
 {-# INLINE [~0] takeWhile #-}
 
-takeEnd :: Int -> Text -> Text
-{-^ O(n) @takeEnd n txt@ is the last @n@ 'Char's of @txt@ of @'length' txt >= n@; otherwise it is @txt@. -}
-takeEnd !n !cs = dropWord8 (lengthWord8 (dropEnd n cs)) cs
-{-# NOTINLINE takeEnd #-}
-
 takeWhileEnd :: (Char -> Bool) -> Text -> Text
 {-^ O(n)
-@takeWhileEnd p txt@ drops up to and including the last 'Char' of 'txt' that does not satisfy @p@, leaving only the characters at the end of 'txt' that satisfy @p@.
+@takeWhileEnd p txt@ is @txt@'s longest suffix of 'Char's that satisfy @p@.
 
 >>> takeWhileEnd Char.isLower "Period is not lower."
 ""
@@ -240,7 +294,11 @@ takeWhileEnd !p !cs = dropWord8 (lengthWord8 (dropWhileEnd p cs)) cs
 
 
 foldl :: (b -> Char -> b) -> b -> Text -> b
-{-^ O(n) -}
+{-^ O(n)
+@foldl f z txt@ uses @f@ stream the 'Char's of @txt@, starting with the last @Char@ and ending with @z@.
+
+@foldl (_ c -> c) ('emptyError' "last")@ = @'last'@.
+-}
 foldl f z = loop
   where
     loop !cs =
@@ -250,7 +308,9 @@ foldl f z = loop
 {-# INLINABLE foldl #-}
 
 foldl' :: (b -> Char -> b) -> b -> Text -> b
-{-^ O(n) (strict) -}
+{-^ O(n) (strict)
+@foldl' f z txt@ uses @f@ to accumulate the 'Char's of @txt@ onto @z@, starting with the first @Char@.
+-}
 foldl' f = loop
   where
     loop z !cs =
@@ -262,7 +322,9 @@ foldl' f = loop
 -- foldr is defined in Internal.
 
 foldr' :: (Char -> b -> b) -> b -> Text -> b
-{-^ O(n) (strict) -}
+{-^ O(n) (strict)
+@foldr' f z txt@ uses @f@ to accumulate the 'Char's of @txt@ onto @z@, starting with the last @Char@.
+-}
 foldr' f = loop
   where
     loop z !cs =
@@ -272,6 +334,13 @@ foldr' f = loop
 {-# INLINABLE foldr' #-}
 
 reverse :: Text -> Text
+{-^ O(n)
+Reverse the order of the 'Char's of the 'Text'
+>>> reverse "D:"
+":D"
+
+I would give an example here of a acute folowed by b reversing to b acute followed by a, but it's bugging out my emacs in WSL.
+-}
 reverse cs = -- Could first test whether cs is shorter than 2 Chars.
     UnsafeFromByteString
         (BS.unsafePackLenBytes

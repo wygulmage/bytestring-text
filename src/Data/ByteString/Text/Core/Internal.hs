@@ -10,6 +10,9 @@
            , MultiWayIf
   #-}
 
+{-# OPTIONS_HADDOCK not-home
+  #-}
+
 {- This is an internal module of bytestring-text, and is not subject to the usual package versioning policy for API changes. By using this API you can violate invariants that are assumed in the 'Data.ByteString.Text' API, and even violate memory safety! Have fun!
 -}
 
@@ -17,7 +20,7 @@
 -}
 
 module Data.ByteString.Text.Core.Internal (
-Text (..),
+Text (..), encodeUtf8,
 -- * Construct:
 pack, singleton,
 append, concat, empty,
@@ -84,6 +87,10 @@ newtype Text = UnsafeFromByteString BS.ByteString
     , Monoid, Semigroup
     , NFData
     )
+
+encodeUtf8 :: Text -> BS.ByteString
+{-^ O(1) Convert 'Text' to a UTF-8-encoded 'ByteString' -}
+encodeUtf8 (UnsafeFromByteString bs) = bs
 
 -- Concrete versions of Monoid methods:
 
