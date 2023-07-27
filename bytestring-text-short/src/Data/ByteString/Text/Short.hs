@@ -9,12 +9,13 @@ empty, concat, append,
 pack,
 unpack, foldr,
 isPrefixOf, isSuffixOf, isInfixOf,
-replicate, intercalate,
+cycleN, intercalate,
 ) where
 
 import Data.ByteString.Text.Short.Internal
+import qualified Data.ByteString.Text.Builder.Internal.Utf8 as Utf8
 
-import qualified Data.ByteString.Short as SBS
+import qualified Data.ByteString.Short as BS
 
 import GHC.Base hiding (empty, foldr)
 import GHC.Num
@@ -23,16 +24,26 @@ import Data.Coerce (coerce)
 import qualified Data.List as List
 import Data.Word (Word8)
 
-toShortByteString :: ShortText -> SBS.ShortByteString
+toShortByteString :: ShortText -> BS.ShortByteString
 toShortByteString (SBS sbs) = sbs
 
 null :: ShortText -> Bool
-null = coerce SBS.null
+null = coerce BS.null
 {-# INLINE null #-}
+
+foldl :: (a -> Char -> a) -> a -> ShortText -> a
+foldl = Utf8.foldlIndexLen (coerce BS.index) lengthWord8
+{-# INLINEABLE foldl #-}
+
+foldl' :: (a -> Char -> a) -> a -> ShortText -> a
+foldl' = Utf8.foldl'IndexLen (coerce BS.index) lengthWord8
+
+foldr' :: (Char -> a -> a) -> a -> ShortText -> a
+foldr' = Utf8.foldr'IndexLen (coerce BS.index) lengthWord8
 
 isPrefixOf :: ShortText -> ShortText -> Bool
 #if MIN_VERSION_bytestring(0,11,3)
-isPrefixOf = coerce SBS.isPrefixOf
+isPrefixOf = coerce BS.isPrefixOf
 {-# INLINE isPrefixOf #-}
 #else
 isPrefixOf pre = List.isPrefixOf (unpackWord8 pre) . unpackWord8
@@ -40,24 +51,24 @@ isPrefixOf pre = List.isPrefixOf (unpackWord8 pre) . unpackWord8
 
 isSuffixOf :: ShortText -> ShortText -> Bool
 #if MIN_VERSION_bytestring(0,11,3)
-isSuffixOf = coerce SBS.isSuffixOf
+isSuffixOf = coerce BS.isSuffixOf
 {-# INLINE isSuffixOf #-}
 #else
 isSuffixOf (SBS pre) (SBS txt) =
-    n <= SBS.length txt
+    n <= BS.length txt
     &&  go_suffixOf (n - 1)
   where
-    !n = SBS.length pre
-    !txt_off = SBS.length txt - n
+    !n = BS.length pre
+    !txt_off = BS.length txt - n
     go_suffixOf !i =
         i < 0  ||
-        (SBS.index pre i == SBS.index txt (i + txt_off)  &&  go_suffixOf (i - 1))
+        (BS.index pre i == BS.index txt (i + txt_off)  &&  go_suffixOf (i - 1))
 {-# NOTINLINE isSuffixOf #-}
 #endif
 
 isInfixOf :: ShortText -> ShortText -> Bool
 #if MIN_VERSION_bytestring(0,11,3)
-isInfixOf = coerce SBS.isInfixOf
+isInfixOf = coerce BS.isInfixOf
 {-# INLINE isInfixOf #-}
 #else
 isInfixOf pre = List.isInfixOf (unpackWord8 pre) . unpackWord8
@@ -66,7 +77,7 @@ isInfixOf pre = List.isInfixOf (unpackWord8 pre) . unpackWord8
 
 intercalate :: ShortText -> [ShortText] -> ShortText
 #if MIN_VERSION_bytestring(0,11,3)
-intercalate = coerce SBS.intercalate
+intercalate = coerce BS.intercalate
 {-# INLINE intercalate #-}
 #else
 intercalate sep = concat . List.intersperse sep
@@ -77,7 +88,7 @@ unpackWord8 :: ShortText -> [Word8]
 {-^ Some of the definitions here use Data.List functions. This is an attempt to ensure fusion by using 'build'.
 -}
 #if MIN_VERSION_bytestring(0,11,3)
-unpackWord8 = coerce SBS.unpack
+unpackWord8 = coerce BS.unpack
 #else
 unpackWord8 = \ sbs -> build (\ f z -> foldrWord8 f z sbs)
 {-# INLINE [~0] unpackWord8 #-}
@@ -90,10 +101,10 @@ foldrWord8 = coerce SBS.foldr
 #else
 foldrWord8 f z (SBS sbs) =
   let
-    !len = SBS.length sbs
+    !len = BS.length sbs
     go_foldrW8 !i
         | i < len
-        = SBS.index sbs i `f` go_foldrW8 (i + 1)
+        = BS.index sbs i `f` go_foldrW8 (i + 1)
         | otherwise
         = z
   in go_foldrW8 0

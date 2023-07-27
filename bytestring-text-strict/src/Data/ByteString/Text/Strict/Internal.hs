@@ -46,7 +46,7 @@ pack = fromBuilder . Builder.fromString
 
 unsafeHead :: Text -> Char
 unsafeHead (TextBS bs) =
-    case Utf8.unsafeIndexLenVia (BS.unsafeIndex bs) 0 of
+    case Utf8.unsafeIndexNextVia (BS.unsafeIndex bs) 0 of
         (# c, _ #) -> c
 
 uncons :: Text -> Maybe (Char, Text)
@@ -54,13 +54,12 @@ uncons (TextBS bs)
     | BS.null bs
     = Nothing
     | otherwise
-    = case Utf8.unsafeIndexLenVia (BS.unsafeIndex bs) 0 of
+    = case Utf8.unsafeIndexNextVia (BS.unsafeIndex bs) 0 of
         (# c, off #) -> Just (c, TextBS (BS.drop off bs))
 
 foldr :: (Char -> b -> b) -> b -> Text -> b
-foldr f z = \ (TextBS bs) ->
-    Utf8.foldrIndexLen f z (BS.unsafeIndex bs) (BS.length bs)
-{-# INLINE [~0] foldr #-}
+foldr = Utf8.foldrIndexLen (coerce BS.unsafeIndex) lengthWord8
+{-# INLINE [0] foldr #-}
 -- foldr f z = foldr_go
 --   where
 --     foldr_go txt =
@@ -82,3 +81,7 @@ fromBuilderWith sizeHint bldr =
         LBS.empty
         (Builder.toByteStringBuilder bldr)))
 {-# INLINE fromBuilderWith #-}
+
+lengthWord8 :: Text -> Int
+lengthWord8 = coerce BS.length
+{-# INLINE lengthWord8 #-}

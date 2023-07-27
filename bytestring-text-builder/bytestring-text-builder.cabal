@@ -20,6 +20,7 @@ library
   exposed-modules:
       Data.ByteString.Text.Builder
       Data.ByteString.Text.Builder.Internal
+      Data.ByteString.Text.Builder.Internal.Prelude
       Data.ByteString.Text.Builder.Internal.Utf8
   -- other-modules:
   other-extensions:

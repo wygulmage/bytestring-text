@@ -14,13 +14,11 @@ replaceBadUtf16,
 defaultChunkSize, smallChunkSize,
 ) where
 
-import GHC.Base
+import Data.ByteString.Text.Builder.Internal.Prelude
 
 import Data.ByteString.Text.Builder.Internal.Utf8
 import qualified Data.ByteString.Builder as BSB
-import qualified Data.ByteString.Builder.Extra as BSB
 import qualified GHC.Exts as GHC
-import GHC.Num
 import Foreign.Storable (sizeOf)
 
 newtype Builder = BSB BSB.Builder

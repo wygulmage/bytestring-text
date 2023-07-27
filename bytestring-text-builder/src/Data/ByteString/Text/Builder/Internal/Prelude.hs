@@ -5,7 +5,7 @@
 
 {-| This module exists to avoid name clashes created by importing 'Prelude' unqualified.
 -}
-module Data.ByteString.Text.Core.Internal.Prelude (
+module Data.ByteString.Text.Builder.Internal.Prelude (
 ($!),
 HasCallStack, assert,
 module GHC.Enum,
@@ -40,17 +40,18 @@ import GHC.Enum
 import GHC.Err (error, errorWithoutStackTrace, undefined)
 -- Bring basic unlifted operators into scope when MagicHash is enabled:
 import GHC.Exts
-  ( Char#
+  ( Char( C# ), Char#
   , eqChar#, neChar#, leChar#, ltChar#, geChar#, gtChar#
   , chr#
-  , Int#
+  , Int( I# ), Int#
   , negateInt#, ( *# ), ( +# ), ( -# )
   , ( ==# ), ( /=# ), ( <=# ), ( <# ), ( >=# ), ( ># )
   , notI#, andI#, orI#, xorI#
-  , Word#
+  , Word( W# ), Word#
   , eqWord#, neWord#, leWord#, ltWord#, geWord#, gtWord#
   , not#, and#, or#, xor#
   , clz#
+  , isTrue#
   )
 import qualified GHC.Exts as GHC
 import GHC.Num hiding (quotRemInteger)

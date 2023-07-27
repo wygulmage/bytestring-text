@@ -15,7 +15,7 @@ ShortText (..),
 empty, append, concat,
 pack,
 unpack, foldr,
-replicate,
+cycleN,
 lengthWord8,
 dropWord8, takeWord8,
 ) where
@@ -78,8 +78,8 @@ takeWord8 :: Int -> ShortText -> ShortText
 takeWord8 = coerce SBS.take
 #else
 takeWord8 n txt
-    | n <= 0    = empty
-    | n >= len  = txt
+    -- | n <= 0    = empty
+    -- | n >= len  = txt
     | otherwise = sliceWord8 0 n txt
   where
     !len = lengthWord8 txt
@@ -90,8 +90,8 @@ dropWord8 :: Int -> ShortText -> ShortText
 dropWord8 = coerce SBS.drop
 #else
 dropWord8 n txt
-    | n >= len  = empty
-    | n == 0    = txt
+    -- | n >= len  = empty
+    -- | n <= 0    = txt
     | otherwise = sliceWord8 n (len - n) txt
   where
     !len = lengthWord8 txt
@@ -119,16 +119,18 @@ sliceWord8 off n txt | off <= 0  &&  n >= length txt = txt
 Although these sanity checks match sliceWord8 off n = take n . drop off, they may provide counter-intuitive results when offset or n is out-of-bounds.
 -}
 
-replicate :: Int -> ShortText -> ShortText
-{-^ @replicate n txt@ O(n * length txt)
-prop> \ n txt -> replicate n txt == concat (List.repeat n txt)
+cycleN :: Int -> ShortText -> ShortText
+{-^ @cycleN n txt@ O(n * length txt)
+prop> \ n txt -> cycleN n txt == concat (List.repeat n txt)
 
-If @n@ = 1, @replicate n txt@ is @txt@; if @n@ <= 0, it is 'empty'. Otherwise, it produces a completely new 'ShortText'.
+prop> \ n txt -> cycleN n txt == mtimesDefault n txt
+
+If @n@ = 1, @cycleN n txt@ is @txt@; if @n@ <= 0, it is 'empty'. Otherwise, it produces a completely new 'ShortText'.
 -}
 #if MIN_VERSION_bytestring(0,11,3)
-replicate = coerce SBS.replicate
+cycleN = coerce SBS.cycleN
 #else
-replicate n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
+cycleN n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
     | n <= 0  -- Match Data.List's behavior for counts less than 0 rather than throwing an error. (This is questionable.)
     = empty
     | n == 1
@@ -140,16 +142,16 @@ replicate n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
               case
                 unsafeFreezeByteArray#
                     mba#
-                    ( replicate_loop mba# s1 0# )
+                    ( cycleN_loop mba# s1 0# )
               of
                   (# _, ba'# #) -> SBS ( IBS.SBS ba'# )
   where
     !len# = sizeofByteArray# ba#
     !len'# = n# *# len#
-    replicate_loop mba# s i#
+    cycleN_loop mba# s i#
         | isTrue# ( i# <# len'# )
         = case copyByteArray# ba# 0# mba# i# len# s of
-              s' -> replicate_loop mba# s' ( i# +# len# )
+              s' -> cycleN_loop mba# s' ( i# +# len# )
         | otherwise
         = s
 #endif
@@ -169,22 +171,13 @@ pack str =
 unsafeFromLazyByteString :: LBS.ByteString -> ShortText
 unsafeFromLazyByteString lbs = SBS (BS.toShort (LBS.toStrict lbs))
 
-unsafeIndexWord8# :: ShortText -> Int -> (# Char, Int #)
-unsafeIndexWord8# (SBS sbs) = Utf8.unsafeIndexLenVia (BS.index sbs)
-{-# INLINE unsafeIndexWord8# #-}
+-- unsafeIndexWord8# :: ShortText -> Int -> (# Char, Int #)
+-- unsafeIndexWord8# (SBS sbs) = Utf8.unsafeIndexNextVia (BS.index sbs)
+-- {-# INLINE unsafeIndexWord8# #-}
 
 foldr :: (Char -> b -> b) -> b -> ShortText -> b
-foldr f z = \ txt ->
-  let
-    !len = lengthWord8 txt
-    foldr_go !i
-        | i < len
-        = case unsafeIndexWord8# txt i of
-            (# c, off #) ->
-                c `f` foldr_go (i + off)
-        | otherwise
-        = z
-  in foldr_go 0
+foldr = Utf8.foldrIndexLen (coerce BS.index) lengthWord8
+{-# INLINE [0] foldr #-}
 
 {-
 unsafeFromLazyByteString :: LBS.ByteString -> ShortText

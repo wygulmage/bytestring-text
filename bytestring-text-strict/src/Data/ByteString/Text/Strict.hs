@@ -7,17 +7,19 @@ Text,
 concat, append, empty, -- stimes and mtimesDefault are also part of the API, but must be imported from Data.Semigroup.
 pack,
 unpack,
-uncons, foldr,
+uncons, foldr, foldr', foldl, foldl',
+length,
 isPrefixOf, isSuffixOf, isInfixOf,
 stripPrefix, stripSuffix,
 ) where
 
 import Data.ByteString.Text.Strict.Internal
+import Data.ByteString.Text.Builder.Internal.Utf8
+import Data.ByteString.Text.Builder.Internal.Prelude
 
 import qualified Data.ByteString as BS
 
-import GHC.Base hiding (empty, foldr)
-
+import GHC.Exts (build)
 import Data.Coerce (coerce)
 
 empty :: Text
@@ -28,6 +30,7 @@ append :: Text -> Text -> Text
 append = mappend
 {-# INLINE append #-}
 
+
 concat :: [Text] -> Text
 concat = mconcat
 {-# INLINE concat #-}
@@ -35,6 +38,22 @@ concat = mconcat
 unpack :: Text -> [Char]
 unpack txt = build (\ cons nil -> foldr cons nil txt)
 {-# INLINE unpack #-}
+
+foldl :: (b -> Char -> b) -> b -> Text -> b
+foldl = foldlIndexLen (coerce BS.index) lengthWord8
+{-# INLINE [~0] foldl #-}
+
+foldl' :: (b -> Char -> b) -> b -> Text -> b
+foldl' = foldl'IndexLen (coerce BS.index) lengthWord8
+{-# INLINE [~0] foldl' #-}
+
+foldr' :: (Char -> b -> b) -> b -> Text -> b
+foldr' = foldr'IndexLen (coerce BS.index) lengthWord8
+{-# INLINE [~0] foldr' #-}
+
+length :: Text -> Int
+length = foldl' (\ n _ -> n + 1) 0
+{-# NOTINLINE length #-}
 
 isPrefixOf :: Text -> Text -> Bool
 {-^ O(length prefix)

@@ -17,41 +17,14 @@ module Data.ByteString.Text.Builder.Internal.Utf8 (
 isUtf16Surrogate, replaceBadUtf16,
 -- Helpers for consuming UTF-8
 foldrIndexLen,
+foldr'IndexLen,
+foldlIndexLen,
 foldl'IndexLen,
-unsafeIndexLenVia,
-unsafeIndexLenEndVia,
+unsafeIndexNextVia,
+unsafeIndexBackVia,
 ) where
 
-import qualified GHC.Exts as GHC
-import GHC.Exts
-    ( Char#, chr#, geChar#
-    , Int#, ( <=# ), ( +# ), ( -# ), xorI#
-    , Word#
-    )
-import GHC.Num
-import GHC.Real (fromIntegral)
-import GHC.Word
-import Data.Bool
-import Data.Char hiding (chr)
-import Data.Function
-import Data.Int
-import Data.Bits
-import Data.Ord
-
-#if __GLASGOW_HASKELL >= 902
-import GHC.Exts ( Word8#, word8ToWord#, wordToWord8# )
-
-#else
---- Shim for GHC versions where Word8 wraps Word#
-type Word8# = GHC.Word#
-
-word8ToWord# :: Word8# -> GHC.Word#
-word8ToWord# w8 = w8
-
-wordToWord8# :: GHC.Word# -> Word8#
-wordToWord8# = GHC.narrow8Word#
-{-# INLINE wordToWord8# #-}
-#endif
+import Data.ByteString.Text.Builder.Internal.Prelude
 
 replaceBadUtf16 :: Char -> Char
 {-^ @replaceBadUtf16 c@ is @'\\xFFFD'@ if c is a UTF-16 surrogate, otherwise it is @c@.
@@ -79,46 +52,89 @@ A 'Char' can be a single ("unpaired ") surrogate. UTF-8 cannot encode these erro
 isUtf16Surrogate c = '\xD800' <= c  &&  c <= '\xDFFF'
 {-# INLINE isUtf16Surrogate #-}
 
-foldrIndexLen :: (Char -> b -> b) -> b -> (Int -> Word8) -> Int -> b
-foldrIndexLen f z = \ !index !length ->
+foldrIndexLen ::
+    (bytes -> Int -> Word8) -> (bytes -> Int) ->
+    (Char -> a -> a) -> a -> bytes -> a
+foldrIndexLen index length = \ f z ->
   let
-    foldr_go !i
-        | i < length
-        = case unsafeIndexLenVia index i of
-            (# c, off #) ->
-                c `f` foldr_go (i + off)
+    foldr_go !i bytes
+        | isTrue# (i <# length')
+        = case unsafeIndexNextVia# index' i of
+            (# c, i' #) -> c `f` foldr_go i' bytes
         | otherwise
         = z
-  in foldr_go 0
+      where
+        index' i = index bytes ( I# i )
+        !( I# length' ) = length bytes
+  in foldr_go 0#
+
 {-# INLINE foldrIndexLen #-}
 
-foldl'IndexLen :: (b -> Char -> b) -> b -> (Int -> Word8) -> Int -> b
-foldl'IndexLen f z0 = \ index length ->
+foldl'IndexLen ::
+    (bytes -> Int -> Word8) -> (bytes -> Int) ->
+    (b -> Char -> b) -> b -> bytes -> b
+foldl'IndexLen index length = \ f z0 ->
   let
-    foldl'_loop !i z
-        | i < length
-        = case unsafeIndexLenVia index i of
-            (# c, off #) ->
-                let !z' = f z c
-                in foldl'_loop (i + off) z'
+    foldl'_loop !i z bytes
+        | isTrue# ( i <# length' )
+        = case unsafeIndexNextVia# index' i of
+            (# c, i' #) ->
+                let !z' = f z c in foldl'_loop i' z' bytes
         | otherwise
         = z
-  in foldl'_loop 0 z0
+      where
+        !( I# length' ) = length bytes
+        index' i = index bytes ( I# i )
+  in foldl'_loop 0# z0
 {-# INLINE foldl'IndexLen #-}
 
-unsafeIndexLenVia :: ( Int -> Word8 ) -> Int -> (# Char, Int #)
-{-^ O(1)
-Given an offset in bytes and a function that indexes (in bytes) into some UTF-8-encoded input, give the 'Char' at that offset and the number of bytes needed to encode that 'Char' in UTF-8.
+foldlIndexLen ::
+    (bytes -> Int -> Word8) -> (bytes -> Int) ->
+    (a -> Char -> a) -> a -> bytes -> a
+foldlIndexLen index length = \ f z -> \ bytes ->
+  let
+    !( I# length' ) = length bytes
+    index' i = index bytes ( I# i )
+    foldl_go !i
+        | isTrue# ( i >=# 0# )
+        = case unsafeIndexBackVia# index' i of
+            (# c, i' #) ->
+                foldl_go i' `f` c
+        | otherwise
+        = z
+  in foldl_go ( length' -# 1# )
+{-# INLINE foldlIndexLen #-}
 
-This is used to implement 'uncons', 'foldr' and 'foldl''.
--}
-unsafeIndexLenVia index ( GHC.I# i# ) =
-    case unsafeIndexLenVia# (\ i'# -> index ( GHC.I# i'# )) i# of
-        (# c, l# #) -> (# c, GHC.I# l# #)
-{-# INLINE unsafeIndexLenVia #-}
+foldr'IndexLen ::
+    (bytes -> Int -> Word8) -> (bytes -> Int) ->
+    (Char -> a -> a) -> a -> bytes -> a
+foldr'IndexLen index length = \ f z0 -> \ bytes ->
+  let
+    index' i = index bytes ( I# i )
+    !( I# length' ) = length bytes
+    foldr'_loop !i z
+        | isTrue# (i >=# 0#)
+        = case unsafeIndexBackVia# index' i of
+            (# c, i' #) ->
+              let !z' = f c z in foldr'_loop i' z'
+        | otherwise
+        = z
+  in foldr'_loop ( length' -# 1# ) z0
+{-# INLINE foldr'IndexLen #-}
+
+unsafeIndexNextVia :: ( Int -> Word8 ) -> Int -> (# Char, Int #)
+unsafeIndexNextVia index ( I# i ) =
+    case unsafeIndexNextVia# (\ i' -> index ( I# i' )) i of
+        (# c, i'' #) -> (# c, I# i'' #)
+{-# INLINE unsafeIndexNextVia #-}
+
+unsafeIndexNextVia# :: ( Int# -> Word8 ) -> Int# -> (# Char, Int# #)
+unsafeIndexNextVia# index i =
+    case unsafeIndexLenVia# index i of (# c, off #) -> (# c, off +# i #)
+{-# INLINE unsafeIndexNextVia# #-}
 
 unsafeIndexLenVia# :: ( Int# -> Word8 ) -> Int# -> (# Char, Int# #)
-unsafeIndexLenVia# index i0 = (# chr' c, l #)
+unsafeIndexLenVia# index i0 = (# uncheckedChr' c, l #)
   where
     -- For now this is a thunk to make `uncons` lazier, but could force it or produce a Char# rather than a Char.
     c = case l of
@@ -126,28 +142,32 @@ unsafeIndexLenVia# index i0 = (# chr' c, l #)
         2# -> char2' b0 b1
         3# -> char3' b0 b1 b2
         _ -> char4' b0 b1 b2 b3
-    !(GHC.I# l) = utf8LengthByLeader b0
+    !(I# l) = utf8LengthByLeader b0
     !b0 = index i0
     b1 = index ( i0 +# 1# )
     b2 = index ( i0 +# 2# )
     b3 = index ( i0 +# 3# )
 {-# INLINE unsafeIndexLenVia# #-}
 
-unsafeIndexLenEndVia :: (Int -> Word8) -> Int -> (# Char, Int #)
-{-^
-This is used to implement 'unsnoc' or, when slicing isn't free, 'foldl' and 'foldr''.
--}
-unsafeIndexLenEndVia index ( GHC.I# end ) =
-    case unsafeIndexLenEndVia# (\ i -> index ( GHC.I# i )) end of
-        (# c, len #) -> (# c, GHC.I# len #)
-{-# INLINE unsafeIndexLenEndVia #-}
+unsafeIndexBackVia :: ( Int -> Word8 ) -> Int -> (# Char, Int #)
+unsafeIndexBackVia index ( I# i ) =
+    case unsafeIndexBackVia# (\ i' -> index ( I# i' )) i of
+        (# c, i'' #) -> (# c, I# i'' #)
+{-# INLINE unsafeIndexBackVia #-}
+
+unsafeIndexBackVia# :: ( Int# -> Word8 ) -> Int# -> (# Char, Int# #)
+unsafeIndexBackVia# index i =
+    case unsafeIndexLenEndVia# index i of (# c, off #) -> (# c, off +# i #)
+{-# INLINE unsafeIndexBackVia# #-}
 
 unsafeIndexLenEndVia# :: ( Int# -> Word8 ) -> Int# -> (# Char, Int# #)
 {-^ O(1)
 Given the byte index of the end of a UTF-8-encoded 'Char' and an indexing function into an input, return the whole 'Char' and its encoded length.
+
+This is unsafe because it does not check if its input is empty or UTF-8.
 -}
 unsafeIndexLenEndVia# index end =
-    (# chr' c, diff #)
+    (# uncheckedChr' c, diff #)
   where
     !(# diff, c #)
         | w0 <= 0x7F = (# 0#, char1' w0 #)
@@ -171,18 +191,18 @@ utf8LengthByLeader :: Word8 -> Int
 * 4 if w is a leader of 3
 * 5 to 8 for invalid bytes
 -}
-utf8LengthByLeader ( W8# w8# ) = GHC.I# ( utf8LengthByLeader# w8# )
+utf8LengthByLeader ( W8# w8# ) = I# ( utf8LengthByLeader# w8# )
 {-# INLINE utf8LengthByLeader #-}
 
 utf8LengthByLeader# :: Word8# -> Int#
 utf8LengthByLeader# w8# =
     case countLeadingZeros (complement ( W8# w8# )) of
         -- This makes it 1 for ASCII and 0 for a follower; otherwise it would be the opposite:
-        GHC.I# n# -> xorI# n# ( n# <=# 0# )
+        I# n# -> xorI# n# ( n# <=# 0# )
 {-# INLINE utf8LengthByLeader# #-}
 
 utf8Length :: Char -> Int
-utf8Length ( GHC.C# c# ) = GHC.I# ( utf8Length# c# )
+utf8Length ( C# c# ) = I# ( utf8Length# c# )
 {-# INLINE utf8Length #-}
 
 utf8Length# :: Char# -> Int#
@@ -194,7 +214,7 @@ utf8Length# c =
 {-# INLINE utf8Length# #-}
 
 foldrCharBytes :: (Word8 -> b -> b) -> b -> Char -> b
-foldrCharBytes f z c@( GHC.C# c# ) = case utf8Length# c# of
+foldrCharBytes f z c@( C# c# ) = case utf8Length# c# of
     1# -> case unChar1 c of
         !w0 -> f w0 z
     2# -> case unChar2# c of
@@ -266,23 +286,6 @@ char4' w0 w1 w2 w3 =
     !w2' = unsafeShiftL (fromIntegral (unmarkTail w2)) 6
     !w3' = fromIntegral (unmarkTail w3)
 
-chr :: Int -> Char
-{-^ Contvert an 'Int' to a 'Char', replacing invalid 'Int' values with the Unicode replacement character \xFFFD.
--}
-chr ( GHC.I# i# ) = chr' ( GHC.W# ( GHC.int2Word# i# ))
-{-# INLINE chr #-}
-
-chr' :: Word -> Char
-{-^ Convert a 'Word' to a 'Char', replacing invalid 'Int' values with the Unicode replacement character \xFFFD.
--}
-chr' w@( GHC.W# w# )
-    | w > 0x10FFFF -- max Unicode code point
-    || (0xD800 <= w  &&  w <= 0xDFFF) -- UTF-16 surrogates
-    = '\xFFFD'
-    | otherwise
-    = GHC.C# ( chr'# w# )
-{-# INLINABLE chr' #-}
-
-chr'# :: GHC.Word# -> GHC.Char#
-chr'# w = chr# (GHC.word2Int# w)
-{-# INLINE chr'# #-}
+uncheckedChr' :: Word -> Char
+uncheckedChr' ( W# w ) = C# (chr'# w )
+{-# INLINE uncheckedChr' #-}
