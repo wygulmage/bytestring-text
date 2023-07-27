@@ -3,11 +3,22 @@
            , BangPatterns
   #-}
 
+{-| Strict UTF-8 Strings
+
+'ShortText' is most suitable for strings that will be examined, but not edited, regardless of size. It has somewhat less overhead, but is less versatile, than 'Data.ByteString.Text.Strict.Text'.
+
+Differences between 'Data.ByteString.Text.Strict.Text' and 'ShortText':
+ + 'ShortText' cannot leave a large string in memory while only a tiny slice is used. (Slicing operations create entirely new 'ShortText's.)
+ + 'ShortText' is (by default) unpinned. This means that the garbage collector can move it around to avoid fragmentation.
+ - 'ShortText' does not provide incremental deconstruction like 'uncons', 'unsnoc', 'tail', or 'init'. If you want to consume a 'ShortText', consume it all at once.
+-}
+
 module Data.ByteString.Text.Short (
 ShortText,
 empty, concat, append,
 pack,
-unpack, foldr,
+unpack, foldr, foldr', foldl, foldl',
+null, length,
 isPrefixOf, isSuffixOf, isInfixOf,
 cycleN, intercalate,
 ) where
@@ -27,44 +38,25 @@ import Data.Word (Word8)
 toShortByteString :: ShortText -> BS.ShortByteString
 toShortByteString (SBS sbs) = sbs
 
-null :: ShortText -> Bool
-null = coerce BS.null
-{-# INLINE null #-}
-
 foldl :: (a -> Char -> a) -> a -> ShortText -> a
 foldl = Utf8.foldlIndexLen (coerce BS.index) lengthWord8
 {-# INLINEABLE foldl #-}
 
 foldl' :: (a -> Char -> a) -> a -> ShortText -> a
 foldl' = Utf8.foldl'IndexLen (coerce BS.index) lengthWord8
+{-# INLINEABLE foldl' #-}
 
 foldr' :: (Char -> a -> a) -> a -> ShortText -> a
 foldr' = Utf8.foldr'IndexLen (coerce BS.index) lengthWord8
+{-# INLINEABLE foldr' #-}
 
-isPrefixOf :: ShortText -> ShortText -> Bool
-#if MIN_VERSION_bytestring(0,11,3)
-isPrefixOf = coerce BS.isPrefixOf
-{-# INLINE isPrefixOf #-}
-#else
-isPrefixOf pre = List.isPrefixOf (unpackWord8 pre) . unpackWord8
-#endif
+null :: ShortText -> Bool
+null = coerce BS.null
+{-# INLINE null #-}
 
-isSuffixOf :: ShortText -> ShortText -> Bool
-#if MIN_VERSION_bytestring(0,11,3)
-isSuffixOf = coerce BS.isSuffixOf
-{-# INLINE isSuffixOf #-}
-#else
-isSuffixOf (SBS pre) (SBS txt) =
-    n <= BS.length txt
-    &&  go_suffixOf (n - 1)
-  where
-    !n = BS.length pre
-    !txt_off = BS.length txt - n
-    go_suffixOf !i =
-        i < 0  ||
-        (BS.index pre i == BS.index txt (i + txt_off)  &&  go_suffixOf (i - 1))
-{-# NOTINLINE isSuffixOf #-}
-#endif
+length :: ShortText -> Int
+length = foldl' (\ len _ -> len + 1) 0
+{-# NOTINLINE length #-}
 
 isInfixOf :: ShortText -> ShortText -> Bool
 #if MIN_VERSION_bytestring(0,11,3)

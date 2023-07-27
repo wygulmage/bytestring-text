@@ -6,9 +6,8 @@ module Data.ByteString.Text.Strict (
 Text,
 concat, append, empty, -- stimes and mtimesDefault are also part of the API, but must be imported from Data.Semigroup.
 pack,
-unpack,
-uncons, foldr, foldr', foldl, foldl',
-length,
+unpack, uncons, foldr, foldr', foldl, foldl',
+null, length,
 isPrefixOf, isSuffixOf, isInfixOf,
 stripPrefix, stripSuffix,
 ) where
@@ -30,7 +29,6 @@ append :: Text -> Text -> Text
 append = mappend
 {-# INLINE append #-}
 
-
 concat :: [Text] -> Text
 concat = mconcat
 {-# INLINE concat #-}
@@ -41,15 +39,19 @@ unpack txt = build (\ cons nil -> foldr cons nil txt)
 
 foldl :: (b -> Char -> b) -> b -> Text -> b
 foldl = foldlIndexLen (coerce BS.index) lengthWord8
-{-# INLINE [~0] foldl #-}
+{-# INLINABLE foldl #-}
 
 foldl' :: (b -> Char -> b) -> b -> Text -> b
 foldl' = foldl'IndexLen (coerce BS.index) lengthWord8
-{-# INLINE [~0] foldl' #-}
+{-# INLINABLE foldl' #-}
 
 foldr' :: (Char -> b -> b) -> b -> Text -> b
 foldr' = foldr'IndexLen (coerce BS.index) lengthWord8
-{-# INLINE [~0] foldr' #-}
+{-# INLINABLE foldr' #-}
+
+null :: Text -> Bool
+null = coerce BS.null
+{-# INLINE null #-}
 
 length :: Text -> Int
 length = foldl' (\ n _ -> n + 1) 0

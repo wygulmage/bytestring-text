@@ -15,6 +15,7 @@ ShortText (..),
 empty, append, concat,
 pack,
 unpack, foldr,
+isPrefixOf, isSuffixOf,
 cycleN,
 lengthWord8,
 dropWord8, takeWord8,
@@ -74,28 +75,73 @@ lengthWord8 = coerce BS.length
 {-# INLINE lengthWord8 #-}
 
 takeWord8 :: Int -> ShortText -> ShortText
+{-^ @takeWord8 n txt@ takes the first @n@ bytes from @txt@.
+
+This is extremely unsafe! The result is unspecified if you take
+ * part of a multibyte code point
+ * more bytes than you have
+ * a negative number of bytes
+-}
 #if MIN_VERSION_bytestring(0,11,3)
 takeWord8 = coerce SBS.take
 #else
-takeWord8 n txt
-    -- | n <= 0    = empty
-    -- | n >= len  = txt
-    | otherwise = sliceWord8 0 n txt
-  where
-    !len = lengthWord8 txt
+takeWord8 n txt = sliceWord8 0 n txt
 #endif
 
 dropWord8 :: Int -> ShortText -> ShortText
+{-^ @dropWord8 n txt@ drop the first @n@ bytes from @txt@.
+
+This is extremely unsafe! The result is unspecified if you drop
+ * part of a multibyte code point
+ * more bytes than you have
+ * a negative number of bytes
+-}
 #if MIN_VERSION_bytestring(0,11,3)
 dropWord8 = coerce SBS.drop
 #else
-dropWord8 n txt
-    -- | n >= len  = empty
-    -- | n <= 0    = txt
-    | otherwise = sliceWord8 n (len - n) txt
-  where
-    !len = lengthWord8 txt
+dropWord8 n txt = sliceWord8 n (lengthWord8 txt - n) txt
 #endif
+
+isPrefixOf :: ShortText -> ShortText -> Bool
+#if MIN_VERSION_bytestring(0,11,3)
+isPrefixOf = coerce BS.isPrefixOf
+{-# INLINE isPrefixOf #-}
+#else
+isPrefixOf pre txt =
+    len_pre <= lengthWord8 txt
+    &&  compareWord8Slices pre 0 txt 0 len_pre == EQ
+  where
+    !len_pre = lengthWord8 pre
+{-# NOTINLINE isPrefixOf #-}
+#endif
+
+isSuffixOf :: ShortText -> ShortText -> Bool
+#if MIN_VERSION_bytestring(0,11,3)
+isSuffixOf = coerce BS.isSuffixOf
+{-# INLINE isSuffixOf #-}
+#else
+isSuffixOf suf txt =
+    off_txt >= 0
+    &&  compareWord8Slices suf 0 txt off_txt len_suf == EQ
+    -- If null suf, off_txt is lengthWord8 txt, which is past the last item -- but n is 0, so no items should be compared anyway.
+  where
+    !len_suf = lengthWord8 suf
+    !off_txt = lengthWord8 txt - len_suf
+{-# NOTINLINE isSuffixOf #-}
+#endif
+
+compareWord8Slices ::
+    ShortText -> Int -> ShortText -> Int -> Int -> Ordering
+compareWord8Slices
+    (SBS ( IBS.SBS x )) ( I# off_x )
+    (SBS ( IBS.SBS y )) ( I# off_y )
+    ( I# n )
+    = case compareByteArrays# x off_x y off_y n of
+        sign
+            -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions.
+            | isTrue# ( sign ==# 0# ) -> EQ
+            | isTrue# ( sign <=# 0# ) -> LT
+            | otherwise               -> GT
 
 sliceWord8 :: Int -> Int -> ShortText -> ShortText
 {-^ @sliceWord8 offset size txt@ creates a new @ShortText@ that consists of @size@ bytes of @txt@, starting at byte offset @offset@.
