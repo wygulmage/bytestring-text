@@ -15,12 +15,58 @@ Differences between 'Data.ByteString.Text.Strict.Text' and 'ShortText':
 
 module Data.ByteString.Text.Short (
 ShortText,
-empty, concat, append,
+empty, concat, append, replicate,
 pack,
 unpack, foldr, foldr', foldl, foldl',
 null, length,
 isPrefixOf, isSuffixOf, isInfixOf,
-cycleN, intercalate,
+intercalate,
+{- Not yet implemented:
+singleton,
+unfoldr, unfoldrN,
+head,
+last,
+compareLength,
+all,
+any,
+scanl, scanl1, scanr, scanr1,
+mapAccumL, mapAccumR,
+map,
+reverse,
+replace,
+isAscii,
+take,
+takeEnd,
+drop,
+dropEnd,
+splitAt,
+breakOn,
+breakOnEnd,
+splitOn,
+breakOnAll,
+lines, unlines,
+commonPrefixes,
+filter, partition,
+index,
+findIndex,
+count,
+copy,
+measureOff#,
+unpackCString#,
+-}
+{- Will not implement:
+cons,
+snoc,
+uncons,
+unsnoc,
+tail, tails,
+init, inits,
+intersperse,
+maximum,
+minimum,
+elem, -- use 'isInfixOf'
+unpackCStringAscii#,
+-}
 ) where
 
 import Data.ByteString.Text.Short.Internal
@@ -49,10 +95,6 @@ foldl' = Utf8.foldl'IndexLen (coerce BS.index) lengthWord8
 foldr' :: (Char -> a -> a) -> a -> ShortText -> a
 foldr' = Utf8.foldr'IndexLen (coerce BS.index) lengthWord8
 {-# INLINEABLE foldr' #-}
-
-null :: ShortText -> Bool
-null = coerce BS.null
-{-# INLINE null #-}
 
 length :: ShortText -> Int
 length = foldl' (\ len _ -> len + 1) 0

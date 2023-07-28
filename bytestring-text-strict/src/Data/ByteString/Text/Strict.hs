@@ -33,10 +33,6 @@ concat :: [Text] -> Text
 concat = mconcat
 {-# INLINE concat #-}
 
-unpack :: Text -> [Char]
-unpack txt = build (\ cons nil -> foldr cons nil txt)
-{-# INLINE unpack #-}
-
 foldl :: (b -> Char -> b) -> b -> Text -> b
 foldl = foldlIndexLen (coerce BS.index) lengthWord8
 {-# INLINABLE foldl #-}

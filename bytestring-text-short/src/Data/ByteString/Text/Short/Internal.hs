@@ -12,15 +12,15 @@
 
 module Data.ByteString.Text.Short.Internal (
 ShortText (..),
-empty, append, concat,
-pack,
+empty, append, concat, pack, fromBuilder, replicate,
 unpack, foldr,
 isPrefixOf, isSuffixOf,
-cycleN,
+null,
 lengthWord8,
 dropWord8, takeWord8,
 ) where
 
+import Data.ByteString.Text.Builder.Internal.Prelude
 import qualified Data.ByteString.Text.Builder.Internal as Builder
 import qualified Data.ByteString.Text.Builder.Internal.Utf8 as Utf8
 import qualified Data.ByteString.Builder as BSB
@@ -30,7 +30,6 @@ import qualified Data.ByteString.Lazy.Internal as ILBS
 import qualified Data.ByteString.Short.Internal as IBS
 
 import GHC.Base hiding (empty, foldr)
-import GHC.Num
 
 import qualified GHC.Exts as GHC
 
@@ -42,9 +41,29 @@ import Text.Show
 
 newtype ShortText = SBS BS.ShortByteString
   deriving newtype
-    ( Monoid, Semigroup
+    ( Monoid
     , Ord, Eq
     )
+
+instance Semigroup ShortText where
+    (<>) = append
+    {-# INLINE (<>) #-}
+    sconcat (txt :| txts) = concat (txt : txts)
+    stimes n txt
+        | lenW8' <= max_Int
+        = replicate (fromIntegral n) txt
+        | otherwise = errorWithoutStackTrace "stimes: overflow"
+      where
+        lenW8' = toInteger n * toInteger (lengthWord8 txt)
+        max_Int = toInteger max_Int'
+          where
+            max_Int' :: Int
+            max_Int' = maxBound
+    {-# INLINE stimes #-}
+
+append :: ShortText -> ShortText -> ShortText
+append = mappend
+{-# INLINE append #-}
 
 instance Read ShortText where
     readPrec = fmap pack readPrec
@@ -58,10 +77,6 @@ empty :: ShortText
 empty = mempty
 {-# INLINE empty #-}
 
-append :: ShortText -> ShortText -> ShortText
-append = (<>)
-{-# INLINE append #-}
-
 concat :: [ShortText] -> ShortText
 concat = mconcat
 {-# INLINE concat #-}
@@ -70,12 +85,18 @@ unpack :: ShortText -> [Char]
 unpack txt = build (\ cons nil -> foldr cons nil txt)
 {-# INLINE [~0] unpack #-}
 
+null :: ShortText -> Bool
+null = coerce BS.null
+{-# INLINE null #-}
+
 lengthWord8 :: ShortText -> Int
+{-^ the number of bytes used to encode the UTF-8
+-}
 lengthWord8 = coerce BS.length
 {-# INLINE lengthWord8 #-}
 
 takeWord8 :: Int -> ShortText -> ShortText
-{-^ @takeWord8 n txt@ takes the first @n@ bytes from @txt@.
+{-^ @takeWord8 n txt@ is the first @n@ bytes of @txt@.
 
 This is extremely unsafe! The result is unspecified if you take
  * part of a multibyte code point
@@ -89,7 +110,7 @@ takeWord8 n txt = sliceWord8 0 n txt
 #endif
 
 dropWord8 :: Int -> ShortText -> ShortText
-{-^ @dropWord8 n txt@ drop the first @n@ bytes from @txt@.
+{-^ @dropWord8 n txt@ is @txt@ without the first @n@ bytes.
 
 This is extremely unsafe! The result is unspecified if you drop
  * part of a multibyte code point
@@ -136,7 +157,7 @@ compareWord8Slices
     (SBS ( IBS.SBS x )) ( I# off_x )
     (SBS ( IBS.SBS y )) ( I# off_y )
     ( I# n )
-    = case compareByteArrays# x off_x y off_y n of
+    = case GHC.compareByteArrays# x off_x y off_y n of
         sign
             -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions.
             | isTrue# ( sign ==# 0# ) -> EQ
@@ -149,38 +170,36 @@ sliceWord8 :: Int -> Int -> ShortText -> ShortText
 WARNING: This can create invalid (non-UTF-8) 'ShortText' values, and the result is unspecified if @'lengthWord8' txt@ < @offset + size@, or if @offset@ or @size@ is negative. Use with extreme caution.
 -}
 sliceWord8 ( I# off# ) ( I# n# ) txt@(SBS ba@( IBS.SBS ba# ))
-    = runRW# $ \ s0 ->
-        case newByteArray# n# s0 of
+    = GHC.runRW# $ \ s0 ->
+        case GHC.newByteArray# n# s0 of
             (# s1, mba# #) ->
-                case copyByteArray# ba# off# mba# 0# n# s1 of
+                case GHC.copyByteArray# ba# off# mba# 0# n# s1 of
                     s2 ->
-                        case unsafeFreezeByteArray# mba# s2 of
+                        case GHC.unsafeFreezeByteArray# mba# s2 of
                             (# _, ba'# #) ->
                                 SBS ( IBS.SBS ba'# )
-{- Could throw in some sanity checks for sliceWord8:
-sliceWord8 _   n _   | n <= 0                        = empty
-sliceWord8 off _ txt | off >= length txt             = empty
-sliceWord8 off n txt | off <= 0  &&  n >= length txt = txt
 
-Although these sanity checks match sliceWord8 off n = take n . drop off, they may provide counter-intuitive results when offset or n is out-of-bounds.
+replicate :: Int -> ShortText -> ShortText
+{-^ @replicate n txt@ O(n * length txt)
+
+Duplicate the 'Text' @n@ times. Please not that this is not equivalent to 'Data.List.replicate'.
+
+prop> \ n txt -> replicate n txt == concat (List.repeat n txt)
+
+prop> \ n txt -> replicate n txt == mtimesDefault n txt
+
+If @n@ = 1, @replicate n txt@ is @txt@; if @n@ = 0, it is 'empty'; if @n@ < 0 it throws an error. Otherwise, it produces a completely new 'ShortText'.
 -}
-
-cycleN :: Int -> ShortText -> ShortText
-{-^ @cycleN n txt@ O(n * length txt)
-prop> \ n txt -> cycleN n txt == concat (List.repeat n txt)
-
-prop> \ n txt -> cycleN n txt == mtimesDefault n txt
-
-If @n@ = 1, @cycleN n txt@ is @txt@; if @n@ <= 0, it is 'empty'. Otherwise, it produces a completely new 'ShortText'.
--}
-#if MIN_VERSION_bytestring(0,11,3)
-cycleN = coerce SBS.cycleN
-#else
-cycleN n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
-    | n <= 0  -- Match Data.List's behavior for counts less than 0 rather than throwing an error. (This is questionable.)
-    = empty
+replicate n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
     | n == 1
     = txt
+    | n < 0
+    -- Data.Text.replicate is 'empty' for negative multipliers.
+    = errorWithoutStackTrace "Data.ByteString.Text.Short.replicate: negative multiplier"
+    | isTrue# ( len'# ==# 0# )
+    = empty
+    | isTrue# ( len'# <# 0# )  -- Multiplication overflowed to negative.
+    = errorWithoutStackTrace "Data.ByteString.Text.Short.Replicate: overflow"
     | otherwise
     = runRW# $ \ s0 ->
         case newByteArray# len'# s0 of
@@ -188,19 +207,18 @@ cycleN n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
               case
                 unsafeFreezeByteArray#
                     mba#
-                    ( cycleN_loop mba# s1 0# )
+                    ( replicate_loop mba# s1 0# )
               of
                   (# _, ba'# #) -> SBS ( IBS.SBS ba'# )
   where
     !len# = sizeofByteArray# ba#
     !len'# = n# *# len#
-    cycleN_loop mba# s i#
+    replicate_loop mba# s i#
         | isTrue# ( i# <# len'# )
         = case copyByteArray# ba# 0# mba# i# len# s of
-              s' -> cycleN_loop mba# s' ( i# +# len# )
+              s' -> replicate_loop mba# s' ( i# +# len# )
         | otherwise
         = s
-#endif
 
 
 instance GHC.IsString ShortText where
@@ -208,11 +226,13 @@ instance GHC.IsString ShortText where
     {-# INLINE fromString #-}
 
 pack :: [Char] -> ShortText
-pack str =
-    case Builder.fromString str of
-      Builder.BSB bsb ->
-          unsafeFromLazyByteString (BSB.toLazyByteString bsb)
+pack = fromBuilder . Builder.fromString
 {-# INLINE [~0] pack #-}
+
+fromBuilder :: Builder.Builder -> ShortText
+fromBuilder =
+    unsafeFromLazyByteString . BSB.toLazyByteString . Builder.toByteStringBuilder
+{-# INLINE fromBuilder #-}
 
 unsafeFromLazyByteString :: LBS.ByteString -> ShortText
 unsafeFromLazyByteString lbs = SBS (BS.toShort (LBS.toStrict lbs))

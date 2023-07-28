@@ -13,8 +13,14 @@
   #-}
 
 
-module Data.ByteString.Text.Strict.Internal where
+module Data.ByteString.Text.Strict.Internal (
+Text (..),
+pack, fromBuilder,
+unpack, uncons, foldr,
+lengthWord8,
+) where
 
+import Data.ByteString.Text.Builder.Internal.Prelude
 import qualified Data.ByteString.Text.Builder.Internal as Builder
 import qualified Data.ByteString.Text.Builder.Internal.Utf8 as Utf8
 
@@ -27,8 +33,9 @@ import qualified Data.ByteString.Builder.Internal as BSB
 
 import Control.DeepSeq (NFData)
 
-import GHC.Base hiding (foldr, empty, uncons)
 import qualified GHC.Exts as GHC (IsString (..), build)
+import Data.Coerce (coerce)
+
 
 newtype Text = TextBS BS.ByteString
   deriving newtype
@@ -37,12 +44,24 @@ newtype Text = TextBS BS.ByteString
     , NFData
     )
 
+instance Read Text where
+    readPrec = fmap pack readPrec
+    readList = readListDefault
+    readListPrec = readListPrecDefault
+
+instance Show Text where
+    showsPrec _ = showList . unpack
+
 instance GHC.IsString Text where
     fromString = pack
 
 pack :: [Char] -> Text
 pack = fromBuilder . Builder.fromString
 {-# INLINE [~0] pack #-}
+
+unpack :: Text -> [Char]
+unpack txt = GHC.build (\ cons nil -> foldr cons nil txt)
+{-# INLINE unpack #-}
 
 unsafeHead :: Text -> Char
 unsafeHead (TextBS bs) =
@@ -60,12 +79,6 @@ uncons (TextBS bs)
 foldr :: (Char -> b -> b) -> b -> Text -> b
 foldr = Utf8.foldrIndexLen (coerce BS.unsafeIndex) lengthWord8
 {-# INLINE [0] foldr #-}
--- foldr f z = foldr_go
---   where
---     foldr_go txt =
---         case uncons txt of
---             Nothing -> z
---             Just (c, txt') -> c `f` foldr_go txt'
 
 fromBuilder :: Builder.Builder -> Text
 fromBuilder = fromBuilderWith Builder.smallChunkSize
