@@ -97,6 +97,9 @@ foldr' = Utf8.foldr'IndexLen (coerce BS.index) lengthWord8
 {-# INLINEABLE foldr' #-}
 
 length :: ShortText -> Int
+{-^ O(n)
+the number of 'Char's (code points) encoded in the text
+-}
 length = foldl' (\ len _ -> len + 1) 0
 {-# NOTINLINE length #-}
 

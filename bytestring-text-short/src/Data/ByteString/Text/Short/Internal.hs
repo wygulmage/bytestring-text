@@ -42,23 +42,49 @@ import Text.Show
 newtype ShortText = SBS BS.ShortByteString
   deriving newtype
     ( Monoid
-    , Ord, Eq
     )
+
+
+-- Local compareWord8Slices is used here for comparison functions, since we define it anyway. Should things be switched to use Short.ByteString functions instead?
+
+instance Ord ShortText where
+    compare = cmpShortText
+    {-# INLINE compare #-}
+
+cmpShortText :: ShortText -> ShortText -> Ordering
+cmpShortText !txt1 !txt2 =
+    compareWord8Slices txt1 0 txt2 0 (min len1 len2) <> compare len1 len2
+  where
+    !len1 = lengthWord8 txt1
+    !len2 = lengthWord8 txt2
+{-# INLINABLE cmpShortText #-}
+
+
+instance Eq ShortText where
+    txt1 == txt2 =
+        len1 == lengthWord8 txt2
+        &&  compareWord8Slices txt1 0 txt2 0 len1 == EQ
+      where
+        !len1 = lengthWord8 txt1
+    {-# INLINABLE (==) #-}
 
 instance Semigroup ShortText where
     (<>) = append
     {-# INLINE (<>) #-}
+
     sconcat (txt :| txts) = concat (txt : txts)
+    {-# INLINE sconcat #-}
+
     stimes n txt
         | lenW8' <= max_Int
         = replicate (fromIntegral n) txt
         | otherwise = errorWithoutStackTrace "stimes: overflow"
       where
-        lenW8' = toInteger n * toInteger (lengthWord8 txt)
-        max_Int = toInteger max_Int'
+        !lenW8' = toInteger n * toInteger (lengthWord8 txt)
+        !max_Int = toInteger max_Int'
           where
             max_Int' :: Int
-            max_Int' = maxBound
+            !max_Int' = maxBound
     {-# INLINE stimes #-}
 
 append :: ShortText -> ShortText -> ShortText
@@ -159,10 +185,12 @@ compareWord8Slices
     ( I# n )
     = case GHC.compareByteArrays# x off_x y off_y n of
         sign
-            -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions.
+            -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions (and, in fact, Eq -- so let's do that.).
+            -- There are "clever" nonbranching things we could do here, but GHC seems to do a better job with explicit branches that it can eliminate.
             | isTrue# ( sign ==# 0# ) -> EQ
-            | isTrue# ( sign <=# 0# ) -> LT
+            | isTrue# ( sign <# 0# )  -> LT  -- could test with <=#
             | otherwise               -> GT
+{-# INLINE compareWord8Slices #-}
 
 sliceWord8 :: Int -> Int -> ShortText -> ShortText
 {-^ @sliceWord8 offset size txt@ creates a new @ShortText@ that consists of @size@ bytes of @txt@, starting at byte offset @offset@.
@@ -204,12 +232,10 @@ replicate n@( I# n# ) txt@(SBS ( IBS.SBS ba# ))
     = runRW# $ \ s0 ->
         case newByteArray# len'# s0 of
             (# s1, mba# #) ->
-              case
-                unsafeFreezeByteArray#
-                    mba#
-                    ( replicate_loop mba# s1 0# )
-              of
-                  (# _, ba'# #) -> SBS ( IBS.SBS ba'# )
+              case replicate_loop mba# s1 0# of
+                  s2 ->
+                      case unsafeFreezeByteArray# mba# s2 of
+                          (# _, ba'# #) -> SBS ( IBS.SBS ba'# )
   where
     !len# = sizeofByteArray# ba#
     !len'# = n# *# len#
@@ -229,13 +255,22 @@ pack :: [Char] -> ShortText
 pack = fromBuilder . Builder.fromString
 {-# INLINE [~0] pack #-}
 
+-- packN :: Int -> [Char] -> ShortText
+-- packN n = fromBuilderWith (n * 4) . Builder.fromString
+
 fromBuilder :: Builder.Builder -> ShortText
 fromBuilder =
     unsafeFromLazyByteString . BSB.toLazyByteString . Builder.toByteStringBuilder
 {-# INLINE fromBuilder #-}
 
+-- fromBuilderWith :: Int -> Builder.Builder -> ShortText
+-- fromBuilderWith n =
+--     unsafeFromLazyByteString . BSB.toLazyByteStringWith n . Builder.toByteStringBuilder
+-- {-# INLINE fromBuilderith #-}
+
 unsafeFromLazyByteString :: LBS.ByteString -> ShortText
 unsafeFromLazyByteString lbs = SBS (BS.toShort (LBS.toStrict lbs))
+
 
 -- unsafeIndexWord8# :: ShortText -> Int -> (# Char, Int #)
 -- unsafeIndexWord8# (SBS sbs) = Utf8.unsafeIndexNextVia (BS.index sbs)
