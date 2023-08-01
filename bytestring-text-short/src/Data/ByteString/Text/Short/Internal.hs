@@ -14,7 +14,7 @@ module Data.ByteString.Text.Short.Internal (
 ShortText (..),
 empty, append, concat, pack, fromBuilder, replicate,
 unpack, foldr,
-isPrefixOf, isSuffixOf,
+isPrefixOf, isSuffixOf, isInfixOf,
 null,
 lengthWord8,
 dropWord8, takeWord8,
@@ -34,6 +34,7 @@ import GHC.Base hiding (empty, foldr)
 import qualified GHC.Exts as GHC
 
 import Control.Monad.ST
+import qualified Data.List as List
 import Foreign.ForeignPtr
 import Text.Read
 import Text.Show
@@ -176,6 +177,52 @@ isSuffixOf suf txt =
     !off_txt = lengthWord8 txt - len_suf
 {-# NOTINLINE isSuffixOf #-}
 #endif
+
+isInfixOf :: ShortText -> ShortText -> Bool
+#if MIN_VERSION_bytestring(0,11,3)
+isInfixOf = coerce BS.isInfixOf
+{-# INLINE isInfixOf #-}
+#else
+isInfixOf = isInfixOfBrutal
+#endif
+
+isInfixOfBrutal :: ShortText -> ShortText -> Bool
+{-^ O(min 1 (length needle) * length haystack)
+Compare all substrings of haystack of length (length needle) to needle; if one is equal, evaluate to True; otherwise False.
+
+isInfixOf "" "" is True because "" is a substring of "".
+indices "" "" is [] because "" has no indices.
+So isInfixOf needle haystack is not equivalent to not (List.null needle haystack).
+-}
+isInfixOfBrutal needle haystack =
+    go (lengthWord8 haystack - l_needle)
+    -- Starting with the rightmost, compare all substrings of haystack that are as long as needle to needle. If one matches, evaluate to True; otherwise evaluate to False.
+    -- This doesn't need a null needle check. It'll memcmp nothing to nothing once and evaluate to True. Which is plenty efficient for a useless edge case.
+  where
+    !l_needle = lengthWord8 needle
+    go !i
+      | i >= 0
+      = case compareWord8Slices needle 0 haystack i l_needle of
+            EQ -> True
+            _  -> go (i - 1)
+      | otherwise
+      = False
+{-# INLINABLE isInfixOfBrutal #-}
+
+-- indicesBrutal :: ShortText -> ShortText -> [Int]
+-- indicesBrutal needle haystack =
+--     GHC.build $ \ cons nil -> go cons nil 0
+--   where
+--     !l_needle = lengthWord8 needle
+--     !l_haystack = lengthWord8 haystack
+--     go cons nil !i
+--         | i < l_haystack
+--         = case compareWord8Slices needle 0 haystack i l_needle of
+--             EQ -> i `cons` go cons nil (i + 1)
+--             _  -> go cons nil (i + 1)
+--         | otherwise
+--         = nil
+-- {-# INLINABLE indicesBrutal #-}
 
 compareWord8Slices ::
     ShortText -> Int -> ShortText -> Int -> Int -> Ordering

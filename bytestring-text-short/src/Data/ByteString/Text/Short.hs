@@ -103,13 +103,13 @@ the number of 'Char's (code points) encoded in the text
 length = foldl' (\ len _ -> len + 1) 0
 {-# NOTINLINE length #-}
 
-isInfixOf :: ShortText -> ShortText -> Bool
-#if MIN_VERSION_bytestring(0,11,3)
-isInfixOf = coerce BS.isInfixOf
-{-# INLINE isInfixOf #-}
-#else
-isInfixOf pre = List.isInfixOf (unpackWord8 pre) . unpackWord8
-#endif
+-- isInfixOf :: ShortText -> ShortText -> Bool
+-- #if MIN_VERSION_bytestring(0,11,3)
+-- isInfixOf = coerce BS.isInfixOf
+-- {-# INLINE isInfixOf #-}
+-- #else
+-- isInfixOf pre = List.isInfixOf (unpackWord8 pre) . unpackWord8
+-- #endif
 
 
 intercalate :: ShortText -> [ShortText] -> ShortText
