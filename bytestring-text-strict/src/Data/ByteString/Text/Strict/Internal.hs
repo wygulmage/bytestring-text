@@ -28,7 +28,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder as BSB
-import qualified Data.ByteString.Builder.Internal as BSB
+import qualified Data.ByteString.Builder.Extra as BSB
     (toLazyByteStringWith, safeStrategy)
 
 import Control.DeepSeq (NFData)

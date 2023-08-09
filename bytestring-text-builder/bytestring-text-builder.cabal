@@ -29,7 +29,7 @@ library
       DerivingStrategies
       GeneralizedNewtypeDeriving
   build-depends: base ^>=4.13.0.0
-               , bytestring ^>=0.10.10.1
+               , bytestring >=0.10.2.0 && <0.13
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -39,5 +39,4 @@ test-suite bytestring-text-builder-test
   hs-source-dirs:      test
   main-is:             MyLibTest.hs
   build-depends: base ^>=4.13.0.0
-               , bytestring ^>=0.10.10.1
-
+               , bytestring >=0.10.2.0 && <0.13

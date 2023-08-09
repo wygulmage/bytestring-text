@@ -17,18 +17,23 @@ main = defaultMain $
             $ nf (List.null . indicesBrutalBS "/") "/ascii ByteString") :
         (bench "first index indicesTwoWay"
             $ nf (List.null . indicesTwoWayBS "/") "/ascii ByteString") :
-
+        (bench "first index indicesTwoWay (unprocessed)"
+            $ nf (\ (pat, txt) -> List.null (indicesTwoWayBS pat txt)) ("/", "/ascii ByteString")) :
         (bench "index elemIndices"
             $ nf (List.null . elemIndicesBS 58) "some.long.url.co.uk/webstore/foo.asp.net.php#:~:nothingHerePal") :
         (bench "index indicesBrutal"
             $ nf (List.null . indicesBrutalBS ":") "some.long.url.co.uk/webstore/foo.asp.net.php#:~:nothingHerePal") :
         (bench "index indicesTwoWay"
             $ nf (List.null . indicesTwoWayBS ":") "some.long.url.co.uk/webstore/foo.asp.net.php#:~:nothingHerePal") :
+        (bench "index indicesTwoWay (unprocessed)"
+            $ nf (\ (pat, txt) -> List.null (indicesTwoWayBS pat txt)) (":", "some.long.url.co.uk/webstore/foo.asp.net.php#:~:nothingHerePal")) :
 
         (bench "short repetitive needle indicesBrutal"
             $ nf (List.null . indicesBrutalBS "cccpcpc") "pcppccpucdceedecccpcpccpuputpccccp") :
         (bench "short repetitive needle indicesTwoWay"
             $ nf (List.null . indicesTwoWayBS "cccpcpc") "pcppccpucdceedecccpcpccpuputpccccp") :
+        (bench "short repetitive needle indicesTwoWay (unprocesed)"
+            $ nf (\ (pat, txt) -> List.null (indicesTwoWayBS pat txt)) ("cccpcpc", "pcppccpucdceedecccpcpccpuputpccccp")) :
 
         []) :
     []
