@@ -17,6 +17,7 @@ module Data.ByteString.Text.Short.Internal.Search where
 
 
 import Data.ByteString.Text.Builder.Internal.Prelude
+import Data.ByteString.Text.Builder.Internal.Search (indicesTwoWayVia)
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Short.Internal as IBS
 import qualified GHC.Exts as GHC
@@ -48,10 +49,20 @@ indicesBS needle
     | l_needle <= 32
     = indicesBrutalBS needle
     | otherwise
-    = two_Way_Pattern_Matching needle
+    = indicesTwoWayBS needle
   where
     !l_needle = BS.length needle
 {-# INLINE indicesBS #-}
+
+isInfixOfBS :: BS.ShortByteString -> BS.ShortByteString -> Bool
+isInfixOfBS needle
+    | BS.length needle == 1
+    = elemBS (BS.index needle 0)
+    | BS.length needle <= 32
+    = isInfixOfBrutalBS needle
+    | otherwise
+    = let !twoWay = indicesTwoWayBS needle
+      in not . List.null . twoWay
 
 
 ------ Naive / Brute Force ------
@@ -124,6 +135,9 @@ indicesBrutalBS needle haystack = go 0
 
 
 ------ Two-Way (O(n)) ------
+
+indicesTwoWayBS :: BS.ShortByteString -> BS.ShortByteString -> [Int]
+indicesTwoWayBS = indicesTwoWayVia compareSlicesBS BS.index BS.length
 
 {- About Maximal Suffixes, Self-maximal Prefixes, and Periods
  * P is periodic ==> period(MaxSuf(P)) == period(P).
@@ -230,8 +244,8 @@ maxsuf_and_Period_via cmp pat = loop 1 2 1
         | otherwise
         = (s, p)
 -}
-
-maxSufPerVia cmp pat = loop (-1) 0 1 1
+{-
+maxSufPerBy cmp pat = loop (-1) 0 1 1
   where
     !n = BS.length pat
     -- s is the (0-based) index of the last byte of the prefix (before the maximal suffix). It never decreases and is always less than i. Using the start of the suffix would make more sense, but this simplifies the math.
@@ -255,8 +269,9 @@ critFact pat
     | s1 >= s2 = sp1
     | otherwise = sp2
   where
-    sp1@(s1, _) = maxSufPerVia compare pat
-    sp2@(s2, _) = maxSufPerVia (flip compare) pat
+    sp1@(s1, _) = maxSufPerBy compare pat
+    sp2@(s2, _) = maxSufPerBy (flip compare) pat
+-}
 
 {- Simplified Crochemore-Perrin
 
@@ -274,7 +289,7 @@ while i <= n - |v| do
   else  {- MISMATCH of v -}
     i := i + j + 1;
 -}
-
+{-
 -- This is modified to use 0-based indexing.
 two_Way_Pattern_Matching ::
     BS.ShortByteString -> BS.ShortByteString -> [Int]
@@ -303,6 +318,7 @@ two_Way_Pattern_Matching pat = \ text ->
             | otherwise
             = loop (i + j + 1) j prev
   in loop l_u 0 0
+-}
 
 {-
 The worst case for Two-way_Pattern matching is when pat is self-maximal, because |u| = 0.
@@ -311,7 +327,6 @@ The solution to this is to try the both the maximal decomposition by the orderin
 
 This is called "magic decompositon". For decomposition by <= (u1, v1) and decomposition by >= (u2, v2), if |v1| <= |v2| the magic decomposition is (u1, v1); otherwise it is (u2, v2).
 -}
-
 {-
 selfmax_period bs = loop 1 1
 {-^ period of longest self-maximal prefix -}
@@ -323,7 +338,9 @@ selfmax_period bs = loop 1 1
           else loop (i + 1) pi
         | otherwise
         = pi
+-}
 
+{-
 selfmax_periods bs = loop 1 1
 {-^ periods of all self-maximal prefixes -}
   where
@@ -340,7 +357,7 @@ selfmax_periods bs = loop 1 1
 
 -- rtBGM pat text = loop 0
 --   where
---     -- Computer two critical factorizations, one of pat and one of a prefix of pat:
+--     -- Compute two critical factorizations, one of pat and one of a prefix of pat:
 --     -- For factorization pat = uv <> w, use suffix w.
 --     -- For factorization pat = u <> vv', use prefix u
 --     -- Factor pat into (u, v, v') where

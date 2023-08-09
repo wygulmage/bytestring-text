@@ -20,8 +20,8 @@ library
   exposed-modules:
       Data.ByteString.Text.Short
       Data.ByteString.Text.Short.Internal
-  other-modules:
       Data.ByteString.Text.Short.Internal.Search
+  -- other-modules:
   other-extensions:
       NoImplicitPrelude
       DerivingStrategies

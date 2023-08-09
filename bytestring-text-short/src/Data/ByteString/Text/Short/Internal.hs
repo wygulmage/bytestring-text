@@ -226,7 +226,6 @@ isSuffixOf (SBS suf) (SBS txt) =
   where
     !len_suf = BS.length suf
     !off_txt = BS.length txt - len_suf
-{-# NOTINLINE isSuffixOf #-}
 #endif
 
 isInfixOf :: ShortText -> ShortText -> Bool
@@ -234,19 +233,24 @@ isInfixOf :: ShortText -> ShortText -> Bool
 isInfixOf = coerce BS.isInfixOf
 {-# INLINE isInfixOf #-}
 #else
-isInfixOf (SBS needle)
-    | BS.length needle == 1
-    = elemBS (BS.index needle 0) . toShortByteString
-    | BS.length needle <= 32
-    -- This is includes the empty needle case, so no need to worry about two-way being [] for isInfixOf "" "".
-    = isInfixOfBrutalBS needle . toShortByteString
-    | otherwise
-    -- Use a complex algorithm that preprocesses the needle and then jumps around comparing different parts of it.
-    = not . List.null . two_Way_Pattern_Matching needle . toShortByteString
+isInfixOf = coerce isInfixOfBS
 {-# INLINE isInfixOf #-}
 #endif
 
+count :: ShortText -> ShortText -> Int
+{-^ @count pat txt@ is the number of times @pat@ occurs in @txt@.
+
+An empty pattern is an error.
+-}
+count pat
+    | null pat
+    = errorWithoutStackTrace "Data.ByteString.Text.Short.count: empty pattern"
+    | otherwise
+    = let !occs = indices pat in List.length . occs
+
 indices :: ShortText -> ShortText -> [Int]
+{-^ @indices pat txt@ is the list of 'Word8'-based indices of occurrences of @pat@ in @txt@.
+-}
 indices = coerce indicesBS
 {-# INLINE indices #-}
 
