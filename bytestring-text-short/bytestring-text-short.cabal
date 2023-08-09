@@ -45,3 +45,16 @@ test-suite bytestring-text-short-test
                , QuickCheck
                , tasty-quickcheck
                , tasty
+
+benchmark bytestring-text-short-bench
+  ghc-options:         "-with-rtsopts=-T"
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Bench.hs
+  build-depends: base ^>=4.13.0.0
+               , bytestring ^>=0.10.10.1
+               , bytestring-text-builder
+               , bytestring-text-short
+               , tasty-bench
+               , tasty

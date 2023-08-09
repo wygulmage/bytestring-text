@@ -19,6 +19,7 @@ isInfixOfBS,
 indicesBS,
 indicesBrutalBS,
 indicesTwoWayBS,
+elemIndicesBS,
 ) where
 
 
