@@ -13,7 +13,13 @@
 {-| functions for seaching and comparing ShortByteStrings
 -}
 
-module Data.ByteString.Text.Short.Internal.Search where
+module Data.ByteString.Text.Short.Internal.Search (
+compareSlicesBS,
+isInfixOfBS,
+indicesBS,
+indicesBrutalBS,
+indicesTwoWayBS,
+) where
 
 
 import Data.ByteString.Text.Builder.Internal.Prelude

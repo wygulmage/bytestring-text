@@ -28,7 +28,7 @@ main = defaultMain $
 prop_indices_equivalent :: ShortText -> ShortText -> Bool
 prop_indices_equivalent (SBS needle) (SBS haystack) =
     BS.null needle
-    || indicesBrutalBS needle haystack == two_Way_Pattern_Matching needle haystack
+    || indicesBrutalBS needle haystack == indicesTwoWayBS needle haystack
 
 {-
 prop_critical_period_doubled :: ShortText -> Bool
