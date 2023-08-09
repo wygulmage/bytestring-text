@@ -55,7 +55,7 @@ import GHC.Exts
   )
 import qualified GHC.Exts as GHC
 import GHC.Num hiding (quotRemInteger)
-import GHC.Real (fromIntegral, toInteger)
+import GHC.Real
 import GHC.Stack (HasCallStack)
 import GHC.Word
 

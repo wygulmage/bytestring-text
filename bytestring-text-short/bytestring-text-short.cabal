@@ -20,7 +20,8 @@ library
   exposed-modules:
       Data.ByteString.Text.Short
       Data.ByteString.Text.Short.Internal
-  -- other-modules:
+  other-modules:
+      Data.ByteString.Text.Short.Internal.Search
   other-extensions:
       NoImplicitPrelude
       DerivingStrategies
@@ -40,3 +41,7 @@ test-suite bytestring-text-short-test
   build-depends: base ^>=4.13.0.0
                , bytestring ^>=0.10.10.1
                , bytestring-text-builder
+               , bytestring-text-short
+               , QuickCheck
+               , tasty-quickcheck
+               , tasty

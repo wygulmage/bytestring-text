@@ -21,6 +21,9 @@ unpack, foldr, foldr', foldl, foldl',
 null, length,
 isPrefixOf, isSuffixOf, isInfixOf,
 intercalate,
+breakOn,
+breakOnAll,
+splitOn,
 {- Not yet implemented:
 singleton,
 unfoldr, unfoldrN,
@@ -40,10 +43,7 @@ takeEnd,
 drop,
 dropEnd,
 splitAt,
-breakOn,
 breakOnEnd,
-splitOn,
-breakOnAll,
 lines, unlines,
 commonPrefixes,
 filter, partition,
@@ -120,6 +120,33 @@ intercalate = coerce BS.intercalate
 intercalate sep = concat . List.intersperse sep
 {-# INLINABLE intercalate #-}
 #endif
+
+breakOn :: ShortText -> ShortText -> (ShortText, ShortText)
+breakOn needle
+    | null needle
+    = (,) empty
+    | otherwise
+    = \ haystack -> case indices needle haystack of
+        [] -> (haystack, empty)
+        i : _ -> (takeWord8 i haystack, dropWord8 i haystack)
+
+breakOnAll :: ShortText -> ShortText -> [(ShortText, ShortText)]
+breakOnAll needle = \ haystack ->
+    List.map (splitW8 haystack) (indices needle haystack)
+  where
+    splitW8 haystack i = (takeWord8 i haystack, dropWord8 i haystack)
+
+splitOn :: ShortText -> ShortText -> [ShortText]
+splitOn needle = \ haystack -> loop haystack 0 (indices needle haystack)
+  where
+    loop haystack start is = case is of
+        i : is' ->
+            sliceWord8 start i haystack : loop haystack (i + lengthWord8 needle) is'
+        []
+            | start < lengthWord8 haystack
+            -> dropWord8 start haystack : []
+            | otherwise
+            -> []
 
 unpackWord8 :: ShortText -> [Word8]
 {-^ Some of the definitions here use Data.List functions. This is an attempt to ensure fusion by using 'build'.
