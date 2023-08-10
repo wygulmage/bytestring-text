@@ -1,5 +1,6 @@
 {-# LANGUAGE NoImplicitPrelude
            , BangPatterns
+           , MagicHash
   #-}
 
 module Data.ByteString.Text.Builder.Internal.Search (
@@ -34,7 +35,7 @@ maxSuffixPeriodVia index length cmp = loop (-1) 0 1 1
         -- s is the (0-based) index of the last byte of the prefix (before the maximal suffix). It never decreases and is always less than i. Using the start of the suffix would make more sense, but this simplifies the math.
         -- i is the forward index into the pattern; it is strictly increasing but can jump forward.
         -- k is the current offset for comparing both the indices into the pattern as long as they are equal, until the period is reached. It starts at 1 rather than 0 to simplify the math.
-        loop !s !i !k !p pat
+        loop !s !i !k !p !pat
             | i + k < n
             -- i + k in this is equal to i in the previous algorithm.
             -- k in this is equal to (i - s) `mod` p in the previous algorithm.
@@ -62,12 +63,12 @@ criticalFactorizationVia ::
     bs -> (Int, Int)
 criticalFactorizationVia index length = go
   where
-    go pat
+    go !pat
         | s1 >= s2 = sp1
         | otherwise = sp2
       where
-        sp1@(s1, _) = maxSuffixPeriodVia index length compare pat
-        sp2@(s2, _) = maxSuffixPeriodVia index length (flip compare) pat
+        sp1@(!s1, !_) = maxSuffixPeriodVia index length compare pat
+        sp2@(!s2, !_) = maxSuffixPeriodVia index length (flip compare) pat
 
 {- Simplified Crochemore-Perrin
 
@@ -97,7 +98,7 @@ indicesTwoWayVia compareSlices index length = go
         (!l_u, !period) = criticalFactorizationVia index length pat
         !l_v = length pat - l_u  -- length of the maximal suffix
         v i = index pat (l_u + i)
-        loop !i !j !prev txt
+        loop !i !j !prev !txt
             | i <= n - l_v
             = loop2 j
             | otherwise
@@ -117,3 +118,38 @@ indicesTwoWayVia compareSlices index length = go
                 | otherwise
                 = loop (i + j + 1) j prev txt
 {-# INLINE indicesTwoWayVia #-}
+
+{-
+indicesTwoWayLoop# ::
+    ( bs -> Int# -> bs -> Int# -> Int# -> Int# ) ->
+    ( bs -> Int# -> Word8# ) ->
+    ( bs -> Int# ) ->
+    bs -> Int# -> Int# ->
+    bs -> [Int]
+indicesTwoWayLoop# eqSlices index length = go
+  where
+    go !pat !l_u !period = loop l_u 0# 0#
+      where
+        !l_v = length pat -# l_u  -- length of the maximal suffix
+        v i = index pat (l_u +# i)
+        loop !i !j !prev !txt
+            | isTrue# ( i <=# n -# l_v )
+            = loop2 j
+            | otherwise
+            = []
+          where
+            x = index txt
+            !n = length txt
+            loop2 !j
+                | isTrue# ( j <# l_v )  && isTrue# ( v j `eqWord8#` x ( i +# j ))
+                = loop2 ( j +# 1# )
+                | isTrue# ( j ==# l_v )
+                = let next = loop ( i +# period ) ( l_v -# period ) i txt
+                  in if isTrue# ( i -# prev  >=#  l_u )
+                    &&  isTrue# ( eqSlices pat 0# txt (i -# l_u) l_u )
+                    then I# (i -# l_u) : next
+                    else next
+                | otherwise
+                = loop ( i +# j +# 1# ) j prev txt
+{-# INLINE indicesTwoWayLoop# #-}
+-}

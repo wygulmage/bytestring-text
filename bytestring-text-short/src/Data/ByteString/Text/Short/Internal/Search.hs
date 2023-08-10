@@ -43,14 +43,14 @@ compareSlicesBS
             -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions (and, in fact, Eq -- so let's do that.).
             -- There are "clever" nonbranching things we could do here, but GHC seems to do a better job with explicit branches that it can eliminate.
             | isTrue# ( sign ==# 0# ) -> EQ
-            | isTrue# ( sign <# 0# )  -> LT  -- could test with <=#
+            | isTrue# ( sign <=# 0# )  -> LT  -- could test with <#
             | otherwise               -> GT
 {-# INLINE compareSlicesBS #-}
 
 indicesBS :: BS.ShortByteString -> BS.ShortByteString -> [Int]
 indicesBS needle
-    | l_needle == 1
-    = elemIndicesBS (BS.index needle 0)
+--    | l_needle == 1
+--    = elemIndicesBS (BS.index needle 0)  -- There's barely any benefit.
     | l_needle == 0  -- The other functions are undefined for empty needles
     = (`List.take` [0..]) . BS.length
     | l_needle <= 32
@@ -63,8 +63,8 @@ indicesBS needle
 
 isInfixOfBS :: BS.ShortByteString -> BS.ShortByteString -> Bool
 isInfixOfBS needle
-    | BS.length needle == 1
-    = elemBS (BS.index needle 0)
+--    | BS.length needle == 1
+--    = elemBS (BS.index needle 0)  -- There's barely any benefit.
     | BS.length needle <= 32
     = isInfixOfBrutalBS needle
     | otherwise
@@ -145,6 +145,10 @@ indicesBrutalBS needle haystack = go 0
 
 indicesTwoWayBS :: BS.ShortByteString -> BS.ShortByteString -> [Int]
 indicesTwoWayBS = indicesTwoWayVia compareSlicesBS BS.index BS.length
+{-# NOTINLINE indicesTwoWayBS #-}
+
+-- unsafeIndexBS :: BS.ShortByteString -> Int -> Word8
+-- unsafeIndexBS (IBS.SBS x) ( I# i ) = W8# ( GHC.indexWord8Array# x i )
 
 {- About Maximal Suffixes, Self-maximal Prefixes, and Periods
  * P is periodic ==> period(MaxSuf(P)) == period(P).

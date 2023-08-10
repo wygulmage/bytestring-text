@@ -12,7 +12,7 @@ module GHC.Enum,
 module GHC.Err,
 module GHC.Exts, chr'#,
 #if !(__GLASGOW_HASKELL >= 902)
-Word8#, wordToWord8#, word8ToWord#,
+Word8#, wordToWord8#, word8ToWord#, eqWord8#,
 #endif
 module GHC.Num,
 module GHC.Real,
@@ -82,7 +82,7 @@ import Text.Read
 import Text.Show
 
 #if __GLASGOW_HASKELL >= 902
-import GHC.Exts ( Word8#, word8ToWord#, wordToWord8# )
+import GHC.Exts ( Word8#, word8ToWord#, wordToWord8#, eqWord8# )
 
 #else
 import qualified GHC.Exts as Exts ( narrow8Word# )
@@ -95,6 +95,10 @@ word8ToWord# w8 = w8
 wordToWord8# :: Word# -> Word8#
 wordToWord8# = Exts.narrow8Word#
 {-# INLINE wordToWord8# #-}
+
+eqWord8# :: Word8# -> Word8# -> Int#
+eqWord8# = eqWord#
+{-# INLINE eqWord8# #-}
 #endif
 
 
