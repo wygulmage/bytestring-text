@@ -24,7 +24,7 @@ elemIndicesBS,
 
 
 import Data.ByteString.Text.Builder.Internal.Prelude
-import Data.ByteString.Text.Builder.Internal.Search (indicesTwoWayVia)
+import Data.ByteString.Text.Builder.Internal.Search
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Short.Internal as IBS
 import qualified GHC.Exts as GHC
@@ -32,6 +32,15 @@ import qualified GHC.Exts as GHC
 import qualified Data.List as List
 
 ------ The Result ------
+
+eqSlicesBS ::
+    BS.ShortByteString -> Int -> BS.ShortByteString -> Int -> Int ->
+    Bool
+eqSlicesBS
+    ( IBS.SBS x ) ( I# off_x ) ( IBS.SBS y ) ( I# off_y ) ( I# n )
+    = case GHC.compareByteArrays# x off_x y off_y n of
+        sign -> isTrue# ( sign ==# 0# )
+{-# INLINE eqSlicesBS #-}
 
 compareSlicesBS ::
     BS.ShortByteString -> Int -> BS.ShortByteString -> Int -> Int ->
@@ -43,7 +52,7 @@ compareSlicesBS
             -- Matching the default 'compare' definition lets GHC make slightly better code for the *fixOf functions (and, in fact, Eq -- so let's do that.).
             -- There are "clever" nonbranching things we could do here, but GHC seems to do a better job with explicit branches that it can eliminate.
             | isTrue# ( sign ==# 0# ) -> EQ
-            | isTrue# ( sign <=# 0# )  -> LT  -- could test with <#
+            | isTrue# ( sign <=# 0# ) -> LT  -- could test with <#
             | otherwise               -> GT
 {-# INLINE compareSlicesBS #-}
 
@@ -144,7 +153,7 @@ indicesBrutalBS needle haystack = go 0
 ------ Two-Way (O(n)) ------
 
 indicesTwoWayBS :: BS.ShortByteString -> BS.ShortByteString -> [Int]
-indicesTwoWayBS = indicesTwoWayVia compareSlicesBS BS.index BS.length
+indicesTwoWayBS = indicesTwoWayVia eqSlicesBS BS.index BS.length
 {-# NOTINLINE indicesTwoWayBS #-}
 
 -- unsafeIndexBS :: BS.ShortByteString -> Int -> Word8

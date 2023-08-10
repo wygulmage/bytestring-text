@@ -134,25 +134,25 @@ while i <= n - |v| do
 
 -- This is modified to use 0-based indexing.
 indicesTwoWayVia ::
-    (bs -> Int -> bs -> Int -> Int -> Ordering) -> (bs -> Int -> Word8) -> (bs -> Int) ->
+    (bs -> Int -> bs -> Int -> Int -> Bool) -> (bs -> Int -> Word8) -> (bs -> Int) ->
     bs -> bs -> [Int]
-indicesTwoWayVia compareSlices index length =
-  \ pat ->
-  let
-    !(# l_u, period #) = criticalFactorizationVia# index# length# pat
-    index# bs i = case index bs (I# i) of W8# w -> w
-    {-# INLINE index# #-}
-    length# bs = case length bs of I# len -> len
-    {-# INLINE length# #-}
-
-  in indicesTwoWayLoop#
-      (\ bs1 off1 bs2 off2 len ->
-         GHC.dataToTag# (compareSlices bs1 (I# off1) bs2 (I# off2) (I# len) == EQ))
-      index#
-      length#
-      pat
-      l_u
-      period
+indicesTwoWayVia eqSlices index length = setupTwoWay
+  where
+    setupTwoWay pat =
+        indicesTwoWayLoop#
+            (\ bs1 off1 bs2 off2 len ->
+              GHC.dataToTag# (eqSlices bs1 (I# off1) bs2 (I# off2) (I# len)))
+            index#
+            length#
+            pat
+            l_u
+            period
+      where
+        !(# l_u, period #) = criticalFactorizationVia# index# length# pat
+        index# bs i = case index bs (I# i) of W8# w -> w
+        {-# INLINE index# #-}
+        length# bs = case length bs of I# len -> len
+        {-# INLINE length# #-}
   --   go
   -- where
   --   go pat = loop l_u 0 0
@@ -174,7 +174,7 @@ indicesTwoWayVia compareSlices index length =
   --               | j == l_v
   --               = let next = loop (i + period) (l_v - period) i txt
   --                 in if i - prev  >=  l_u
-  --                   &&  compareSlices pat 0 txt (i - l_u) l_u == EQ
+  --                   &&  eqSlices pat 0 txt (i - l_u) l_u
   --                   then (i - l_u) : next
   --                   else next
   --               | otherwise
@@ -190,27 +190,29 @@ indicesTwoWayLoop# ::
     bs -> [Int]
 indicesTwoWayLoop# eqSlices index length = go
   where
-    go !pat !l_u !period = loop l_u 0# 0#
+    go !pat !l_u !period !txt = loop l_u 0# 0#
       where
         !l_v = length pat -# l_u  -- length of the maximal suffix
         v i = index pat (l_u +# i)
-        loop !i !j !prev !txt
+        !n = length txt
+        x i = index txt i
+
+        loop !i !j !prev
             | isTrue# ( i <=# n -# l_v )
             = loop2 j
             | otherwise
             = []
           where
-            x = index txt
-            !n = length txt
             loop2 !j
-                | isTrue# ( j <# l_v )  && isTrue# ( v j `eqWord8#` x ( i +# j ))
+                | isTrue# ( j <# l_v )
+                && isTrue# ( v j `eqWord8#` x ( i +# j ))
                 = loop2 ( j +# 1# )
                 | isTrue# ( j ==# l_v )
-                = let next = loop ( i +# period ) ( l_v -# period ) i txt
+                = let next = loop ( i +# period ) ( l_v -# period ) i
                   in if isTrue# ( i -# prev  >=#  l_u )
-                    &&  isTrue# ( eqSlices pat 0# txt (i -# l_u) l_u )
-                    then I# (i -# l_u) : next
-                    else next
+                      && isTrue# ( eqSlices pat 0# txt (i -# l_u) l_u )
+                      then I# (i -# l_u) : next
+                      else next
                 | otherwise
-                = loop ( i +# j +# 1# ) j prev txt
+                = loop ( i +# j +# 1# ) j prev
 {-# INLINE indicesTwoWayLoop# #-}
