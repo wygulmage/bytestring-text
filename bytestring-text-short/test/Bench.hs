@@ -1,9 +1,11 @@
-{-# LANGUAGE OverloadedStrings
+{-# LANGUAGE NoImplicitPrelude
+           , OverloadedStrings
            , BangPatterns
   #-}
 
 
 import Data.ByteString.Text.Short.Internal.Search
+import Data.ByteString.Text.Builder.Internal.Prelude
 
 import Test.Tasty.Bench
 
@@ -22,15 +24,15 @@ main = defaultMain $
             $ nf (\ (pat, txt) -> List.null (elemIndicesBS pat txt)) (47, haystack)) :
         (bench "indicesBrutal"
             $ nf (List.null . indicesBrutalBS needle) haystack) :
-        (bench "first index indicesBrutal (unprocessed)"
+        (bench "indicesBrutal (unprocessed)"
             $ nf (\ (pat, txt) -> List.null (indicesBrutalBS pat txt)) both) :
-        (bench "first index indicesTwoWay"
+        (bench "indicesTwoWay"
             $ nf (List.null . indicesTwoWayBS needle) haystack) :
-        (bench "first index indicesTwoWay (unprocessed)"
+        (bench "indicesTwoWay (unprocessed)"
             $ nf (\ (pat, txt) -> List.null (indicesTwoWayBS pat txt)) both) :
-        (bench "first index indices"
+        (bench "indices"
             $ nf (List.null . indicesBS needle) haystack) :
-        (bench "first index indices (unprocessed)"
+        (bench "indices (unprocessed)"
             $ nf (\ (pat, txt) -> List.null (indicesBS pat txt)) both) :
         []) :
 

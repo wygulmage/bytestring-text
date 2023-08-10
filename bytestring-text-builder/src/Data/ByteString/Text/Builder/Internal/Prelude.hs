@@ -31,6 +31,7 @@ module Data.Maybe,
 module Data.Monoid,
 module Data.Semigroup,
 module Data.Tuple,
+module System.IO,
 module Text.Read,
 module Text.Show,
 ) where
@@ -74,7 +75,7 @@ import Data.Maybe (Maybe (..))
 import Data.Monoid (Monoid (..))
 import Data.Semigroup (Semigroup (..))
 import Data.Tuple
-
+import System.IO (IO)
 import Text.Read
     ( Read (readPrec, readList, readListPrec)
     , readListDefault, readListPrecDefault
