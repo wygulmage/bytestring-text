@@ -4,7 +4,7 @@
 
 module Data.ByteString.Text.Strict (
 Text,
-concat, append, empty, -- stimes and mtimesDefault are also part of the API, but must be imported from Data.Semigroup.
+concat, append, empty, replicate, -- stimes and mtimesDefault are also part of the API, but must be imported from Data.Semigroup.
 pack,
 unpack, uncons, foldr, foldr', foldl, foldl',
 null, length,
@@ -15,6 +15,7 @@ stripPrefix, stripSuffix,
 import Data.ByteString.Text.Strict.Internal
 import Data.ByteString.Text.Builder.Internal.Utf8
 import Data.ByteString.Text.Builder.Internal.Prelude
+import Data.ByteString.Text.Builder.Internal.Search
 
 import qualified Data.ByteString as BS
 
@@ -32,6 +33,10 @@ append = mappend
 concat :: [Text] -> Text
 concat = mconcat
 {-# INLINE concat #-}
+
+replicate :: Int -> Text -> Text
+replicate = stimes
+{-# INLINE replicate #-}
 
 foldl :: (b -> Char -> b) -> b -> Text -> b
 foldl = foldlIndexLen (coerce BS.index) lengthWord8

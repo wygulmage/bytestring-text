@@ -18,10 +18,13 @@ Text (..),
 pack, fromBuilder,
 unpack, uncons, foldr,
 lengthWord8,
+-- For testing:
+indices, indicesBS, indicesBrutalBS, indicesTwoWayBS,
 ) where
 
 import Data.ByteString.Text.Builder.Internal.Prelude
 import qualified Data.ByteString.Text.Builder.Internal as Builder
+import Data.ByteString.Text.Builder.Internal.Search
 import qualified Data.ByteString.Text.Builder.Internal.Utf8 as Utf8
 
 import qualified Data.ByteString as BS
@@ -98,3 +101,51 @@ fromBuilderWith sizeHint bldr =
 lengthWord8 :: Text -> Int
 lengthWord8 = coerce BS.length
 {-# INLINE lengthWord8 #-}
+
+indices :: Text -> Text -> [Int]
+indices = coerce indicesBS
+{-# INLINE indices #-}
+
+indicesBS :: BS.ByteString -> BS.ByteString -> [Int]
+indicesBS pat
+    | BS.length pat == 0
+    = allIndices
+    | BS.length pat <= 32
+    = indicesBrutalBS pat
+    | otherwise
+    = indicesTwoWayBS pat
+  where
+    allIndices txt = loop 0 (BS.length txt)
+    loop !i !len
+        | i < len = i : loop (i + 1) len
+        | otherwise = []
+{-# INLINABLE indicesBS #-}
+
+indicesBrutalBS :: BS.ByteString -> BS.ByteString -> [Int]
+{-^ Warning: This does not work for empty needles! -}
+indicesBrutalBS !pat !txt =
+    loop 0
+  where
+    !l_pat = BS.length pat
+    !end = BS.length txt - l_pat
+    loop !i
+        | i  <=  end
+        = let next = loop (i + 1)
+          in if unsafeSliceBS i l_pat txt == pat
+            then i : next
+            else next
+        | otherwise
+        = []
+{-# NOTINLINE indicesBrutalBS #-}
+
+unsafeSliceBS :: Int -> Int -> BS.ByteString -> BS.ByteString
+unsafeSliceBS off len bs = BS.take len (BS.drop off bs)
+
+indicesTwoWayBS !pat =
+    indicesTwoWayVia
+        (\ bs1 off1 bs2 off2 len ->
+            unsafeSliceBS off1 len bs1 == unsafeSliceBS off2 len bs2)
+        BS.unsafeIndex
+        BS.length
+        pat
+{-# NOTINLINE indicesTwoWayBS #-}

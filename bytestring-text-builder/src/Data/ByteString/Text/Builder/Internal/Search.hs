@@ -57,26 +57,27 @@ maxSuffixPeriodVia# ::
     ( bs -> Int# -> Word8# ) -> ( bs -> Int# ) ->
     ( Word8# -> Word8# -> Int# ) ->
     bs -> (# Int#, Int# #)
-maxSuffixPeriodVia# index length cmp = loop ( -1# ) 0# 1# 1#
+maxSuffixPeriodVia# index length cmp = go
   where
-    loop !s !i !k !p !pat
-        | isTrue# ( i +# k <# n )
-        -- i + k in this is equal to i in the previous algorithm.
-        -- k in this is equal to (i - s) `mod` p in the previous algorithm.
-        = case index pat ( i +# k ) `cmp` index pat ( s +# k ) of
-            sign
-                | isTrue# ( sign ==# 0# )
-                -> if isTrue# ( k ==# p )
-                  then loop s ( i +# p )      1#   p pat
-                  else loop s   i      ( k +# 1# ) p pat
-                | isTrue# ( sign <# 0# )
-                -> loop s ( i +# k ) 1# ( i +# k -# s ) pat
-                | otherwise
-                -> loop i ( i +# 1# ) 1# 1# pat
-        | otherwise
-        = (# s +# 1#, p #)
+    go pat = loop ( -1# ) 0# 1# 1#
       where
         !n = length pat
+        loop !s !i !k !p
+            | isTrue# ( i +# k <# n )
+            -- i + k in this is equal to i in the previous algorithm.
+            -- k in this is equal to (i - s) `mod` p in the previous algorithm.
+            = case index pat ( i +# k ) `cmp` index pat ( s +# k ) of
+                sign
+                    | isTrue# ( sign ==# 0# )
+                    -> if isTrue# ( k ==# p )
+                      then loop s ( i +# p )      1#   p
+                      else loop s   i      ( k +# 1# ) p
+                    | isTrue# ( sign <# 0# )
+                    -> loop s ( i +# k ) 1# ( i +# k -# s )
+                    | otherwise
+                    -> loop i ( i +# 1# ) 1# 1#
+            | otherwise
+            = (# s +# 1#, p #)
 {-# INLINE maxSuffixPeriodVia# #-}
 
 {-
@@ -138,6 +139,7 @@ indicesTwoWayVia ::
     bs -> bs -> [Int]
 indicesTwoWayVia eqSlices index length = setupTwoWay
   where
+    {-# INLINE setupTwoWay #-}
     setupTwoWay pat =
         indicesTwoWayLoop#
             (\ bs1 off1 bs2 off2 len ->
@@ -208,10 +210,11 @@ indicesTwoWayLoop# eqSlices index length = go
                 && isTrue# ( v j `eqWord8#` x ( i +# j ))
                 = loop2 ( j +# 1# )
                 | isTrue# ( j ==# l_v )
-                = let next = loop ( i +# period ) ( l_v -# period ) i
+                = let
+                    next = loop ( i +# period ) ( l_v -# period ) i
                   in if isTrue# ( i -# prev  >=#  l_u )
-                      && isTrue# ( eqSlices pat 0# txt (i -# l_u) l_u )
-                      then I# (i -# l_u) : next
+                      && isTrue# ( eqSlices pat 0# txt ( i -# l_u ) l_u )
+                      then I# ( i -# l_u ) : next
                       else next
                 | otherwise
                 = loop ( i +# j +# 1# ) j prev
